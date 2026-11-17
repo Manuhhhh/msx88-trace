@@ -1,5 +1,5 @@
 # msx88-trace
-Objective: web trace generator for MSX88 assembly (university course use). Branch: main (feature branch `feat/core` per work unit). Delivery: ask-on-risk. Test runner: vitest (`npm test`).
+Objective: web trace generator for MSX88 assembly (university course use). Branch: main (feature branch `feat/core` per work unit). Delivery: ask-on-risk. Test runner: vitest (`bun run test`, package manager: bun).
 
 ## Specs
 - S1. Web app built with Vite + Tailwind (TypeScript). User: "vamos con vite y tailwind", "Mejor hagamoslo una web". Static site, no backend (assumption).
@@ -9,7 +9,7 @@ Objective: web trace generator for MSX88 assembly (university course use). Branc
 - S5. ASSUMPTIONS (unverified, UNLP apunte unreadable): vector entry stores only the handler offset (`DW`), CS not modelled; registers used by INT 6/INT 7 undefined; `ORG`/`EQU`/`CMP mem,imm` syntax as in the example. Mark each in code with `// ASSUMPTION:` and revisit when the apunte is available.
 
 ## Tasks
-- T1 (S1) scaffold Vite + Tailwind + Vitest — inline — in progress
+- T1 (S1) scaffold Vite + Tailwind + Vitest — inline — done, `bun run build` OK, commit 804c16d
 - T2 (S2, S5) lexer/parser/assembler to memory image — inline — pending
 - T3 (S2, S3) CPU core + trace events — inline — pending
 - T4 (S4) PIC, vector table, interrupts, simulated F10 — inline — pending
@@ -21,4 +21,5 @@ Objective: web trace generator for MSX88 assembly (university course use). Branc
 - L3 (2026-11-17): "Mejor hagamoslo una web"
 - L4 (2026-11-17): "vamos con vite y tailwind"
 - Route: all tasks inline; no Writer trigger (units are sequential and share the core types).
-- Note: `npm audit` reports picomatch ReDoS in dev tooling; suggested fix is a downgrade, ignored.
+- Note: `npm audit` (before switching to bun) reported picomatch ReDoS in dev tooling; suggested fix is a downgrade, ignored.
+- L5 (2026-11-17): "usa bun" — switched package manager from npm to bun (bun.lock replaces package-lock.json).
