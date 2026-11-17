@@ -10,7 +10,7 @@ Objective: web trace generator for MSX88 assembly (university course use). Branc
 
 ## Tasks
 - T1 (S1) scaffold Vite + Tailwind + Vitest — inline — done, `bun run build` OK, commit 804c16d
-- T2 (S2, S5) lexer/parser/assembler to memory image — inline — pending
+- T2 (S2, S5) lexer/parser/assembler to memory image — inline — done, 12 tests + strict tsc OK, commit f5d5fc7. Note: tests were written after the code (no RED observed); error cases pin the behavior.
 - T3 (S2, S3) CPU core + trace events — inline — pending
 - T4 (S4) PIC, vector table, interrupts, simulated F10 — inline — pending
 - T5 (S3) trace table UI with Tailwind — inline — pending
