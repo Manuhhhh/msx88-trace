@@ -7,7 +7,7 @@ import { decodeMipsState, encodeMipsState } from "../mips/share";
 import type { MipsShareState } from "../mips/share";
 import { simulateMips } from "../mips/sim";
 import type { MipsSimResult } from "../mips/sim";
-import { fmtValue, memoryRows, pipelineWindow, registerTable } from "../mips/view";
+import { fmtValue, memoryRows, pipelineUpTo, pipelineWindow, registerTable, stepFacts } from "../mips/view";
 import { wireArchSelect } from "./arch";
 import { h } from "./dom";
 import type { Child } from "./dom";
@@ -15,6 +15,8 @@ import { markRange } from "./highlight";
 import { LANGS, getLang, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
 import { newlineEdit, tabEdit } from "./indent";
+import { createLineHighlight } from "./linehl";
+import { revealCurrent } from "./reveal";
 
 /** How many instructions the cycle diagram draws at a time: it is steps x cycles, so a long run needs paging. */
 const PIPE_PAGE = 24;
@@ -43,6 +45,7 @@ export function mountMipsApp(root: HTMLElement): void {
           <div class="editor graphite cut">
             <div class="gutter" aria-hidden="true"><pre id="gutter" class="gutter-lines">1</pre></div>
             <div class="editor-scroll">
+              <div id="line-hl" class="line-hl is-off"></div>
               <pre class="hl" aria-hidden="true"><code id="hl-code"></code></pre>
               <textarea id="source" class="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
                 data-i18n-aria="mips.source.aria" aria-describedby="source-help"
@@ -72,6 +75,21 @@ export function mountMipsApp(root: HTMLElement): void {
             </label>
             <span id="fwd-help" class="help" data-i18n="mips.forwarding.help"></span>
           </div>
+          <div id="viewbar" class="modebar" hidden>
+            <div class="seg" role="group" data-i18n-aria="view.aria">
+              <button type="button" id="mode-all" class="key key--quiet seg-btn" aria-pressed="true" data-i18n="view.all"></button>
+              <button type="button" id="mode-step" class="key key--quiet seg-btn" aria-pressed="false" data-i18n="view.step"></button>
+            </div>
+            <div id="stepper" class="stepper" hidden>
+              <button type="button" id="st-reset" class="key key--sm" data-i18n="step.reset"></button>
+              <button type="button" id="st-prev" class="key key--sm" data-i18n="step.prev"></button>
+              <button type="button" id="st-next" class="key key--sm key--primary" data-i18n="step.next"></button>
+              <button type="button" id="st-play" class="key key--sm"></button>
+              <output id="st-count" class="label stepper-count" for="st-range">0 / 0</output>
+              <input id="st-range" class="stepper-range" type="range" min="0" max="0" value="0" data-i18n-aria="step.range" />
+            </div>
+          </div>
+          <p id="hover" class="hover-line" aria-hidden="true"></p>
           <div id="region" class="region"></div>
           <div id="ledgers" class="ledgers ledgers--mips"></div>
         </section>
@@ -89,12 +107,31 @@ export function mountMipsApp(root: HTMLElement): void {
   const summaryEl = q<HTMLParagraphElement>("summary");
   const exampleEl = q<HTMLSelectElement>("example");
   const langEl = q<HTMLSelectElement>("lang");
+  const lineHlEl = q<HTMLDivElement>("line-hl");
+  const hoverEl = q<HTMLParagraphElement>("hover");
+  const viewbarEl = q<HTMLDivElement>("viewbar");
+  const stepperEl = q<HTMLDivElement>("stepper");
+  const modeAllBtn = q<HTMLButtonElement>("mode-all");
+  const modeStepBtn = q<HTMLButtonElement>("mode-step");
+  const stResetBtn = q<HTMLButtonElement>("st-reset");
+  const stPrevBtn = q<HTMLButtonElement>("st-prev");
+  const stNextBtn = q<HTMLButtonElement>("st-next");
+  const stPlayBtn = q<HTMLButtonElement>("st-play");
+  const stRange = q<HTMLInputElement>("st-range");
+  const stCount = q<HTMLOutputElement>("st-count");
+  const lineHl = createLineHighlight(sourceEl, lineHlEl);
+  const highlightLine = (line: number): void => lineHl.show(line);
 
   let result: MipsSimResult | null = null;
   let pipeline: Pipeline | null = null;
   let pipeStart = 0;
   let view: "empty" | "error" | "trace" = "empty";
   let lastError: AsmError | null = null;
+  type Mode = "all" | "step";
+  let mode: Mode = "all";
+  /** In step mode: how many instructions have run so far. */
+  let pos = 0;
+  let playTimer: number | undefined;
   /** Where the assembler pointed, drawn as an error mark until the source changes. */
   let errorMark: { from: number; to: number } | null = null;
 
@@ -130,6 +167,7 @@ export function mountMipsApp(root: HTMLElement): void {
       gutterEl.parentElement!.style.setProperty("--digits", String(String(n).length));
     }
     gutterEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
+    lineHl.sync();
   }
   sourceEl.addEventListener("scroll", syncGutter);
   sourceEl.addEventListener("input", () => {
@@ -208,7 +246,9 @@ export function mountMipsApp(root: HTMLElement): void {
     result = null;
     pipeline = null;
     view = "empty";
+    leaveStepping();
     setSummary();
+    hoverEl.textContent = "";
     ledgersEl.replaceChildren();
     regionEl.replaceChildren(
       h("div", { class: "state" }, h("h3", { class: "state-title" }, t("empty.title")), h("p", {}, t("mips.empty.body"))),
@@ -220,7 +260,9 @@ export function mountMipsApp(root: HTMLElement): void {
     pipeline = null;
     view = "error";
     lastError = err;
+    leaveStepping();
     setSummary();
+    hoverEl.textContent = "";
     ledgersEl.replaceChildren();
     regionEl.replaceChildren(
       h(
@@ -301,9 +343,11 @@ export function mountMipsApp(root: HTMLElement): void {
   const none = (key: Key): HTMLElement => h("p", { class: "none label" }, t(key));
 
   function pipelineBody(): HTMLElement {
-    const p = pipeline!;
-    const w = pipelineWindow(p, pipeStart, PIPE_PAGE);
-    pipeStart = w.start;
+    const stepping = mode === "step";
+    // stepping shows the last instructions up to the current one, so the newest row is always on screen
+    const p = stepping ? pipelineUpTo(pipeline!, pos) : pipeline!;
+    const w = pipelineWindow(p, stepping ? Number.MAX_SAFE_INTEGER : pipeStart, PIPE_PAGE);
+    if (!stepping) pipeStart = w.start;
     if (w.rows.length === 0) return h("div");
 
     const cycles = Array.from({ length: w.lastCycle - w.firstCycle + 1 }, (_, i) => w.firstCycle + i);
@@ -338,7 +382,7 @@ export function mountMipsApp(root: HTMLElement): void {
     prev.addEventListener("click", () => page(-PIPE_PAGE));
     next.addEventListener("click", () => page(PIPE_PAGE));
     const nav =
-      w.total > PIPE_PAGE
+      !stepping && w.total > PIPE_PAGE
         ? h(
             "div",
             { class: "pipe-nav" },
@@ -351,7 +395,7 @@ export function mountMipsApp(root: HTMLElement): void {
   }
 
   function registersBody(): HTMLElement {
-    const tab = registerTable(result!.steps);
+    const tab = registerTable(result!.steps.slice(0, shown()));
     if (tab.rows.length === 0) return none("mips.none.registers");
     return h(
       "table",
@@ -382,7 +426,7 @@ export function mountMipsApp(root: HTMLElement): void {
   }
 
   function memoryBody(): HTMLElement {
-    const rows = memoryRows(result!.steps);
+    const rows = memoryRows(result!.steps.slice(0, shown()));
     if (rows.length === 0) return none("mips.none.memory");
     return h(
       "table",
@@ -420,10 +464,30 @@ export function mountMipsApp(root: HTMLElement): void {
     );
   }
 
-  function paintLedgers(): void {
+  const total = (): number => result?.steps.length ?? 0;
+  /** How many instructions the tables cover: all of them, or only those run so far when stepping. */
+  const shown = (): number => (mode === "step" ? pos : total());
+
+  /** Fills the three tables with what happened up to the current position. `animate` lets what this step added slide in. */
+  function paintLedgers(animate = false): void {
+    if (!result) return;
+    const scroll = new Map<string, [number, number]>();
+    for (const id of ["pipeline", "registers", "memory"]) scroll.set(id, [body(id).scrollTop, body(id).scrollLeft]);
     body("pipeline").replaceChildren(pipelineBody());
     body("registers").replaceChildren(registersBody());
     body("memory").replaceChildren(memoryBody());
+    for (const [id, [top, left]] of scroll) {
+      body(id).scrollTop = top;
+      body(id).scrollLeft = left;
+    }
+    hovered = 0;
+    if (mode === "step" && pos > 0) {
+      for (const r of ledgersEl.querySelectorAll(`[data-step="${pos}"]`)) {
+        r.classList.add("is-current");
+        if (animate) r.classList.add("is-new");
+      }
+      for (const b of ledgersEl.querySelectorAll<HTMLElement>(".ledger-body")) revealCurrent(b);
+    }
   }
 
   function page(delta: number): void {
@@ -435,10 +499,41 @@ export function mountMipsApp(root: HTMLElement): void {
     result = res;
     view = "trace";
     pipeStart = 0;
+    hovered = 0;
+    stopPlay();
+    pos = 0;
     pipeline = buildPipeline(res.steps, { forwarding: forwardingEl.checked });
+    viewbarEl.hidden = false;
     buildChrome(res);
-    paintLedgers();
+    goTo(0);
   }
+
+  // ---- hovering and stepping ------------------------------------------------------
+
+  const lineOf = (n: number): number => result?.steps[n - 1]?.instr.line ?? 0;
+
+  /** Where a step sits in the program and what it did: registers written, memory touched, stalls, a taken branch. */
+  function describeStep(n: number): string {
+    const s = result?.steps[n - 1];
+    const row = pipeline?.rows[n - 1];
+    if (!s || !row) return "";
+    const f = stepFacts(s, row);
+    const effects = [
+      ...f.regs,
+      ...f.mem.map((m) => t(m.kind === "write" ? "mips.eff.write" : "mips.eff.read", { size: m.size, addr: m.addr, value: String(m.value) })),
+      f.raw > 0 ? t("mips.eff.raw", { n: f.raw }) : "",
+      f.taken ? t("mips.eff.taken") : "",
+    ].filter(Boolean);
+    const head = t("mips.desc.step", { n, line: s.instr.line, text: s.instr.text });
+    return effects.length > 0 ? `${head} → ${effects.join(" · ")}` : head;
+  }
+
+  /** What the readout and the source highlight show while nothing is hovered. */
+  function restText(): string {
+    if (mode === "all") return t("hover.hint");
+    return pos === 0 ? t("hover.ready") : describeStep(pos);
+  }
+  const restLine = (): number => (mode === "step" ? lineOf(pos) : 0);
 
   // hovering a step lights it in every table at once
   let hovered = 0;
@@ -447,12 +542,103 @@ export function mountMipsApp(root: HTMLElement): void {
     hovered = n;
     for (const r of ledgersEl.querySelectorAll(".is-hover")) r.classList.remove("is-hover");
     if (n > 0) for (const r of ledgersEl.querySelectorAll(`[data-step="${n}"]`)) r.classList.add("is-hover");
+    hoverEl.textContent = n > 0 ? describeStep(n) : restText();
+    highlightLine(n > 0 ? lineOf(n) : restLine());
   }
   ledgersEl.addEventListener("mouseover", (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("[data-step]");
     setHover(row ? Number(row.dataset.step) : 0);
   });
   ledgersEl.addEventListener("mouseleave", () => setHover(0));
+
+  function updateStepper(): void {
+    const n = total();
+    stRange.max = String(n);
+    stRange.value = String(pos);
+    stCount.textContent = `${pos} / ${n}`;
+    stResetBtn.disabled = stPrevBtn.disabled = pos === 0;
+    stNextBtn.disabled = pos >= n;
+    stPlayBtn.disabled = n === 0;
+    stPlayBtn.textContent = playTimer === undefined ? t("step.play") : t("step.pause");
+  }
+
+  function stopPlay(): void {
+    if (playTimer !== undefined) window.clearInterval(playTimer);
+    playTimer = undefined;
+  }
+
+  function goTo(n: number): void {
+    const before = pos;
+    pos = Math.min(total(), Math.max(0, n));
+    paintLedgers(mode === "step" && pos > before);
+    hoverEl.textContent = restText();
+    highlightLine(restLine());
+    updateStepper();
+  }
+
+  function setMode(next: Mode): void {
+    stopPlay();
+    mode = next;
+    pos = 0;
+    modeAllBtn.setAttribute("aria-pressed", String(next === "all"));
+    modeStepBtn.setAttribute("aria-pressed", String(next === "step"));
+    stepperEl.hidden = next !== "step";
+    goTo(0);
+  }
+
+  /** No trace to step through: stop any playback and tuck the controls away. */
+  function leaveStepping(): void {
+    stopPlay();
+    pos = 0;
+    viewbarEl.hidden = true;
+    highlightLine(0);
+  }
+
+  function togglePlay(): void {
+    if (playTimer !== undefined) {
+      stopPlay();
+      updateStepper();
+      return;
+    }
+    if (pos >= total()) goTo(0);
+    playTimer = window.setInterval(() => {
+      goTo(pos + 1);
+      if (pos >= total()) {
+        stopPlay();
+        updateStepper();
+      }
+    }, 600);
+    updateStepper();
+  }
+
+  modeAllBtn.addEventListener("click", () => setMode("all"));
+  modeStepBtn.addEventListener("click", () => setMode("step"));
+  stResetBtn.addEventListener("click", () => {
+    stopPlay();
+    goTo(0);
+  });
+  stPrevBtn.addEventListener("click", () => {
+    stopPlay();
+    goTo(pos - 1);
+  });
+  stNextBtn.addEventListener("click", () => {
+    stopPlay();
+    goTo(pos + 1);
+  });
+  stPlayBtn.addEventListener("click", togglePlay);
+  stRange.addEventListener("input", () => {
+    stopPlay();
+    goTo(Number(stRange.value));
+  });
+  // arrow keys step through the run, unless the keys belong to a field
+  document.addEventListener("keydown", (e) => {
+    if (mode !== "step" || view !== "trace" || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    if ((e.target as HTMLElement).closest("input, textarea, select, [contenteditable]")) return;
+    e.preventDefault();
+    stopPlay();
+    goTo(pos + (e.key === "ArrowRight" ? 1 : -1));
+  });
 
   // ---- run -------------------------------------------------------------------
 
@@ -479,7 +665,8 @@ export function mountMipsApp(root: HTMLElement): void {
     if (view !== "trace" || !result) return;
     pipeline = buildPipeline(result.steps, { forwarding: forwardingEl.checked });
     paintSummary();
-    body("pipeline").replaceChildren(pipelineBody());
+    paintLedgers();
+    hoverEl.textContent = restText();
     history.replaceState(null, "", `${location.pathname}${location.search}#${encodeMipsState(readState())}`);
   });
 
@@ -521,11 +708,13 @@ export function mountMipsApp(root: HTMLElement): void {
     if (view === "trace" && result) {
       buildChrome(result);
       paintLedgers();
+      hoverEl.textContent = restText();
     } else if (view === "error" && lastError) {
       renderAsmError(lastError, false);
     } else {
       renderEmpty();
     }
+    updateStepper();
   }
 
   langEl.addEventListener("change", () => {

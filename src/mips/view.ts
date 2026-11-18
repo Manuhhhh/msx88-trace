@@ -80,3 +80,31 @@ export function pipelineWindow(p: Pipeline, start: number, size: number): Pipeli
 export function fmtValue(v: bigint): { dec: string; hex: string } {
   return { dec: v.toString(), hex: `0x${BigInt.asUintN(64, v).toString(16).toUpperCase().padStart(16, "0")}` };
 }
+
+/** The diagram as it stood after `n` instructions: a row only depends on the ones before it, so a prefix is exact. */
+export function pipelineUpTo(p: Pipeline, n: number): Pipeline {
+  return { ...p, rows: p.rows.slice(0, Math.max(0, n)) };
+}
+
+export interface StepFacts {
+  /** `r2 = 14`, `LO = 3`: every register this step wrote. */
+  regs: string[];
+  mem: { kind: "read" | "write"; addr: number; size: number; value: bigint }[];
+  /** Cycles this instruction stalled in ID. */
+  raw: number;
+  /** True for a taken branch or jump. */
+  taken: boolean;
+}
+
+/** What one instruction did, as plain data the screen words in the chosen language. */
+export function stepFacts(step: MipsStep, row: PipelineRow): StepFacts {
+  const regs = step.regs.map((w) => `${regName(w.reg)} = ${w.after}`);
+  if (step.lo) regs.push(`LO = ${step.lo.after}`);
+  if (step.hi) regs.push(`HI = ${step.hi.after}`);
+  return {
+    regs,
+    mem: step.mem.map((m) => ({ kind: m.kind, addr: m.addr, size: m.size, value: m.after })),
+    raw: row.raw,
+    taken: step.taken === true,
+  };
+}

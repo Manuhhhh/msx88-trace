@@ -7,6 +7,8 @@ Objective: add a second mode to msx88-trace that traces EduMIPS64 (MIPS64) synta
 - S3. ASSUMPTION: the mode is an architecture selector (MSX88 | EduMIPS64); MSX88 behaviour must not change.
 - S4. ASSUMPTION: source syntax is EduMIPS64's: `.data`/`.text`/`.code`, `.word`/`.byte`/`.half`/`.space`/`.asciiz`, `r0..r31` and `$0..$31`, labels, `;`/`#` comments, `syscall`/`halt`. Integer subset first; FP out of scope until asked.
 - S5. ASSUMPTION (documented in code with `// ASSUMPTION:`): classic 5-stage in-order pipeline; stalls labelled RAW / WAW / structural as EduMIPS64 does; forwarding toggleable; branches resolved in ID. Exact EduMIPS64 timing to be checked against its manual (edumips64.readthedocs.io).
+- S6. "Agrega una opcion para reproduciir paso a paso, como en el otro modo": a view toggle (all steps / step by step) with the stepper (reset, previous, next, play/pause, range, count), arrow keys, the source line of the current instruction highlighted, and the tables showing only what happened up to the current step, as in MSX88.
+- S7. "Tmb q el grafico de los registros ocupe el doble de ancho, el de la memoria dejalo por debajo": in the EduMIPS64 screen the registers table takes twice the width it had (the full width of the trace pane) and the memory table sits below it.
 
 ## Tasks
 - T1 (S4) MIPS64 lexer/parser/assembler to a program image — inline — done, 21 tests + strict tsc OK, commit f47a7c5. Tests written after the code (no RED observed).
@@ -14,6 +16,7 @@ Objective: add a second mode to msx88-trace that traces EduMIPS64 (MIPS64) synta
 - T3 (S2, S5) pipeline timing model over the executed stream (cycle diagram, stalls, forwarding flag) — inline — done, 12 tests (RED observed: module missing) + full suite 198 + strict tsc OK, commit 61e1483. Timing is an ASSUMPTION documented at the top of src/mips/pipeline.ts; not yet checked against the EduMIPS64 manual.
 - T4 (S3) mode selector + MIPS tables and cycle diagram in the UI, MSX88 untouched — inline — done, commit 7c7668a. Verified in Chromium (screenshots: loop example, RAW without/with forwarding 16 vs 10 cycles, assembler error, MSX88 header unchanged). Stepper (step-by-step) view NOT built for MIPS.
 - T5 (S3) highlight / autocomplete / examples / manual / i18n for MIPS — inline — partly done in T4: highlight, 4 examples, i18n, Spanish messages. Pending: autocomplete, linter, MIPS instruction manual page.
+- T6 (S6, S7) step-by-step playback in the EduMIPS64 screen (shared line-highlight and reveal helpers extracted from app.ts) — inline — pending
 
 ## Log
 - L1 (2026-11-18): "Quiero agregar otro modo, que es para la sintaxis de edumips64"
@@ -21,3 +24,5 @@ Objective: add a second mode to msx88-trace that traces EduMIPS64 (MIPS64) synta
 - Route: all inline; units are sequential (T3 consumes T2's stream, T4 consumes both), so no Writer trigger.
 - Research: EduMIPS64 labels RAW/WAW/structural stalls in the cycle diagram and lets forwarding be toggled (edumips.org, edumips64.readthedocs.io). Exact per-instruction timing NOT verified yet.
 - L3 (2026-11-18): UI decision: separate screen (mips-app.ts) chosen by ?arch=mips, not wired into app.ts, to keep MSX88 untouched; switching reloads the page.
+- L4 (2026-11-18): "Agrega una opcion para reproduciir paso a paso, como en el otro modo"
+- L5 (2026-11-18): "Tmb q el grafico de los registros ocupe el doble de ancho, el de la memoria dejalo por debajo" (added to T6 / S7; layout becomes pipeline, registers, memory, one per row).

@@ -3,7 +3,7 @@ import { tokenizeMips } from "../src/mips/highlight";
 import { mipsExamplesFor } from "../src/mips/examples";
 import { buildPipeline } from "../src/mips/pipeline";
 import { simulateMips } from "../src/mips/sim";
-import { fmtValue, memoryRows, pipelineWindow, registerTable } from "../src/mips/view";
+import { fmtValue, memoryRows, pipelineUpTo, pipelineWindow, registerTable, stepFacts } from "../src/mips/view";
 
 const sim = (src: string) => simulateMips(src);
 
@@ -94,5 +94,36 @@ describe("built-in EduMIPS64 examples", () => {
   it("prints the product", () => {
     const r = simulateMips(mipsExamplesFor("en").find((e) => e.id === "print")!.source);
     expect(r.output).toBe("6 * 7 = 42\n");
+  });
+});
+
+describe("step-by-step helpers", () => {
+  const res = sim(
+    ".data\nv: .space 8\n.text\ndaddi r1, r0, 7\ndadd r2, r1, r1\nsd r2, v(r0)\nbnez r2, end\nnop\nend: halt",
+  );
+  const p = buildPipeline(res.steps, { forwarding: false });
+
+  it("keeps only the first n rows of the diagram, leaving the rest untouched", () => {
+    const cut = pipelineUpTo(p, 2);
+    expect(cut.rows.map((r) => r.step)).toEqual([1, 2]);
+    expect(cut.rows[1]).toBe(p.rows[1]);
+    expect(pipelineUpTo(p, 0).rows).toEqual([]);
+    expect(pipelineUpTo(p, 99).rows).toHaveLength(p.rows.length);
+  });
+
+  it("lists what a step did: registers, memory, stalls and a taken branch", () => {
+    const add = stepFacts(res.steps[1], p.rows[1]);
+    expect(add).toMatchObject({ regs: ["r2 = 14"], raw: 2, taken: false });
+    const store = stepFacts(res.steps[2], p.rows[2]);
+    expect(store.mem).toEqual([{ kind: "write", addr: 0, size: 8, value: 14n }]);
+    expect(store.regs).toEqual([]);
+    const branch = stepFacts(res.steps[3], p.rows[3]);
+    expect(branch.taken).toBe(true);
+  });
+
+  it("names LO and HI when a division writes them", () => {
+    const d = sim("daddi r1, r0, 7\ndaddi r2, r0, 2\nddiv r1, r2\nhalt");
+    const q = buildPipeline(d.steps, { forwarding: true });
+    expect(stepFacts(d.steps[2], q.rows[2]).regs).toEqual(["LO = 3", "HI = 1"]);
   });
 });
