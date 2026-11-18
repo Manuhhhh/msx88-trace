@@ -1,6 +1,8 @@
 import { AsmError } from "../core/types";
 import { mipsExamplesFor } from "../mips/examples";
+import { completeMips } from "../mips/complete";
 import { tokenizeMips } from "../mips/highlight";
+import { lintMips } from "../mips/lint";
 import { buildPipeline } from "../mips/pipeline";
 import type { Pipeline, PipelineRow } from "../mips/pipeline";
 import { decodeMipsState, encodeMipsState } from "../mips/share";
@@ -16,11 +18,17 @@ import { LANGS, getLang, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
 import { newlineEdit, tabEdit } from "./indent";
 import { createLineHighlight } from "./linehl";
+import { loadLintSettings, saveLintSettings } from "./lint";
+import type { Diagnostic } from "./lint";
+import { createLintView, renderLintChecks } from "./lintview";
 import { revealCurrent } from "./reveal";
+import { createSuggest } from "./suggest";
+import { createTextMetrics } from "./textpos";
 
 /** How many instructions the cycle diagram draws at a time: it is steps x cycles, so a long run needs paging. */
 const PIPE_PAGE = 24;
 const DEFAULT_STATE_ID = "sum-loop";
+const LINT_KEY = "msx88-trace:lint-mips";
 
 export function mountMipsApp(root: HTMLElement): void {
   root.innerHTML = `
@@ -48,10 +56,15 @@ export function mountMipsApp(root: HTMLElement): void {
               <div id="line-hl" class="line-hl is-off"></div>
               <pre class="hl" aria-hidden="true"><code id="hl-code"></code></pre>
               <textarea id="source" class="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
-                data-i18n-aria="mips.source.aria" aria-describedby="source-help"
+                data-i18n-aria="mips.source.aria" aria-describedby="source-help lint" aria-autocomplete="list" aria-controls="suggest"
                 placeholder=".text&#10;daddi r1, r0, 5&#10;halt"></textarea>
             </div>
           </div>
+          <ul id="lint" class="lint-list" role="status" hidden></ul>
+          <details id="lint-opts" class="lint-opts">
+            <summary class="label-title" data-i18n="lint.options"></summary>
+            <div id="lint-checks" class="lint-checks"></div>
+          </details>
           <p id="source-help" class="help" data-i18n="mips.source.help"></p>
           <details id="settings" class="settings">
             <summary class="label-title" data-i18n="settings.max"></summary>
@@ -94,7 +107,10 @@ export function mountMipsApp(root: HTMLElement): void {
           <div id="ledgers" class="ledgers ledgers--mips"></div>
         </section>
       </main>
-    </div>`;
+    </div>
+    <div id="lint-tip" class="lint-tip" role="tooltip" hidden></div>
+    <ul id="suggest" class="suggest" role="listbox" data-i18n-aria="suggest.aria" hidden></ul>
+    <p id="suggest-status" class="visually-hidden" role="status"></p>`;
 
   const q = <T extends HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!;
   const sourceEl = q<HTMLTextAreaElement>("source");
@@ -108,6 +124,11 @@ export function mountMipsApp(root: HTMLElement): void {
   const exampleEl = q<HTMLSelectElement>("example");
   const langEl = q<HTMLSelectElement>("lang");
   const lineHlEl = q<HTMLDivElement>("line-hl");
+  const lintEl = q<HTMLUListElement>("lint");
+  const lintChecksEl = q<HTMLDivElement>("lint-checks");
+  const lintTipEl = q<HTMLDivElement>("lint-tip");
+  const suggestEl = q<HTMLUListElement>("suggest");
+  const suggestStatusEl = q<HTMLParagraphElement>("suggest-status");
   const hoverEl = q<HTMLParagraphElement>("hover");
   const viewbarEl = q<HTMLDivElement>("viewbar");
   const stepperEl = q<HTMLDivElement>("stepper");
@@ -132,8 +153,6 @@ export function mountMipsApp(root: HTMLElement): void {
   /** In step mode: how many instructions have run so far. */
   let pos = 0;
   let playTimer: number | undefined;
-  /** Where the assembler pointed, drawn as an error mark until the source changes. */
-  let errorMark: { from: number; to: number } | null = null;
 
   // ---- editor ----------------------------------------------------------------
 
@@ -142,14 +161,14 @@ export function mountMipsApp(root: HTMLElement): void {
 
   function paintSource(): void {
     const text = sourceEl.value;
-    const key = `${errorMark ? `${errorMark.from}:${errorMark.to}` : ""}|${text}`;
+    const findings = lintView.findings;
+    const key = `${findings.map((f) => `${f.severity}:${f.from}:${f.to}`).join(",")}|${text}`;
     if (key === painted) return;
     painted = key;
-    const base = tokenizeMips(text);
-    const tokens = errorMark ? markRange(base, errorMark.from, errorMark.to, "error") : base;
+    const tokens = findings.reduce((acc, f) => markRange(acc, f.from, f.to, f.severity), tokenizeMips(text));
     const frag = document.createDocumentFragment();
     for (const tk of tokens) {
-      const cls = [tk.kind ? `tk tk-${tk.kind}` : "", tk.mark ? "tk-err" : ""].filter(Boolean).join(" ");
+      const cls = [tk.kind ? `tk tk-${tk.kind}` : "", tk.mark ? (tk.mark === "error" ? "tk-err" : "tk-warn") : ""].filter(Boolean).join(" ");
       frag.append(cls ? h("span", { class: cls }, tk.text) : tk.text);
     }
     // a final newline would collapse in the <pre>; the textarea still shows its empty last line
@@ -170,10 +189,33 @@ export function mountMipsApp(root: HTMLElement): void {
     lineHl.sync();
   }
   sourceEl.addEventListener("scroll", syncGutter);
-  sourceEl.addEventListener("input", () => {
-    errorMark = null;
-    syncGutter();
+  sourceEl.addEventListener("input", syncGutter);
+
+  // ---- live linter and suggestions ---------------------------------------------
+
+  const metrics = createTextMetrics(sourceEl);
+  let lintSettings = loadLintSettings(undefined, LINT_KEY);
+  const describeFinding = (f: Diagnostic): string => (f.key ? t(f.key, f.vars) : translateCore(f.message ?? ""));
+
+  const lintView = createLintView({
+    source: sourceEl,
+    list: lintEl,
+    tip: lintTipEl,
+    metrics,
+    describe: describeFinding,
+    compute: () => lintMips(sourceEl.value, { maxSteps: readState().maxSteps }, lintSettings),
+    onPaint: paintSource,
   });
+
+  function buildLintChecks(): void {
+    renderLintChecks(lintChecksEl, lintSettings, (c) => (c === "uninit" ? "mips.lint.check.uninit" : `lint.check.${c}`), (next) => {
+      lintSettings = next;
+      saveLintSettings(next, undefined, LINT_KEY);
+      lintView.now();
+    });
+  }
+
+  const suggest = createSuggest({ source: sourceEl, list: suggestEl, status: suggestStatusEl, metrics, complete: completeMips });
 
   function insert(text: string, from: number, to: number): void {
     sourceEl.setSelectionRange(from, to);
@@ -188,9 +230,11 @@ export function mountMipsApp(root: HTMLElement): void {
   sourceEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
+      suggest.close();
       run();
       return;
     }
+    if (suggest.handleKeydown(e)) return;
     if (e.key === "Escape") {
       leaveOnTab = true;
       return;
@@ -232,8 +276,7 @@ export function mountMipsApp(root: HTMLElement): void {
     sourceEl.value = s.source;
     maxEl.value = String(s.maxSteps);
     forwardingEl.checked = s.forwarding;
-    errorMark = null;
-    syncGutter();
+    lintView.now();
   }
 
   // ---- rendering -------------------------------------------------------------
@@ -273,16 +316,12 @@ export function mountMipsApp(root: HTMLElement): void {
         h("p", {}, t("error.fix")),
       ),
     );
-    if (err.line > 0) {
-      const lines = sourceEl.value.split("\n");
-      const start = lines.slice(0, err.line - 1).reduce((n, l) => n + l.length + 1, 0);
-      errorMark = { from: start, to: start + (lines[err.line - 1]?.length ?? 0) };
-      painted = null;
-      syncGutter();
-      if (reveal) {
-        sourceEl.focus();
-        sourceEl.setSelectionRange(errorMark.from, errorMark.to);
-      }
+    // the linter underlines the same text the assembler complained about
+    lintView.now();
+    const f = lintView.findings.find((x) => x.severity === "error" && x.to > x.from);
+    if (reveal && f) {
+      sourceEl.focus();
+      sourceEl.setSelectionRange(f.from, f.to);
     }
   }
 
@@ -705,6 +744,8 @@ export function mountMipsApp(root: HTMLElement): void {
   function applyLanguage(): void {
     applyStaticText();
     buildExampleOptions();
+    buildLintChecks();
+    lintView.paint();
     if (view === "trace" && result) {
       buildChrome(result);
       paintLedgers();
@@ -725,6 +766,7 @@ export function mountMipsApp(root: HTMLElement): void {
   wireArchSelect(q<HTMLSelectElement>("arch"), "mips");
   applyStaticText();
   buildExampleOptions();
+  buildLintChecks();
   const fromHash = decodeMipsState(location.hash.slice(1));
   const starter = mipsExamplesFor(getLang()).find((e) => e.id === DEFAULT_STATE_ID)!;
   writeState(fromHash ?? { source: starter.source, maxSteps: 2000, forwarding: false });

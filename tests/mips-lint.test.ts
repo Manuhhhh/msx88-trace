@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LINT } from "../src/ui/lint";
+import { DEFAULT_LINT, loadLintSettings, saveLintSettings } from "../src/ui/lint";
 import type { Diagnostic, LintSettings } from "../src/ui/lint";
 import { lintMips } from "../src/mips/lint";
 import { mipsExamplesFor } from "../src/mips/examples";
@@ -160,5 +160,15 @@ describe("EduMIPS64 linter: ordering and the built-in examples", () => {
     for (const lang of ["en", "es"] as const) {
       for (const ex of mipsExamplesFor(lang)) expect(lintMips(ex.source), ex.title).toEqual([]);
     }
+  });
+});
+
+describe("EduMIPS64 linter: settings", () => {
+  it("keeps the user's choice of checks under its own key, apart from MSX88's", () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    saveLintSettings({ ...DEFAULT_LINT, dead: false }, storage, "k-mips");
+    expect(loadLintSettings(storage, "k-mips").dead).toBe(false);
+    expect(loadLintSettings(storage).dead).toBe(true);
   });
 });
