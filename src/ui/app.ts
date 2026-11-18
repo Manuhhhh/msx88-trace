@@ -1,6 +1,9 @@
 import { simulate } from "../core/simulate";
 import type { IrqEvent, SimResult } from "../core/simulate";
 import { AsmError } from "../core/types";
+import { wireArchSelect } from "./arch";
+import { h } from "./dom";
+import type { Child } from "./dom";
 import { examplesFor } from "./examples";
 import { hex8, hex16 } from "./format";
 import { buildHistory, stackSlots } from "./history";
@@ -17,22 +20,6 @@ import { cleanName, deleteScript, listScripts, saveScript } from "./scripts";
 import { decodeState, encodeState } from "./share";
 import type { ShareState } from "./share";
 
-type Child = Node | string | null | undefined | false;
-
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Record<string, string | boolean | undefined> = {},
-  ...children: Child[]
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v === undefined || v === false) continue;
-    node.setAttribute(k, v === true ? "" : v);
-  }
-  for (const c of children) if (c) node.append(c);
-  return node;
-}
-
 const LINE_IDS = [0, 1, 2] as const;
 
 type LedgerId = "registers" | "flags" | "heap" | "stack";
@@ -44,6 +31,7 @@ export function mountApp(root: HTMLElement): void {
         <a class="wordmark" href="./" data-i18n-aria="wordmark.label">MSX88 Trace</a>
         <div class="topbar-actions flex items-center gap-(--space-sm)">
           <select id="lang" class="control lang-select" aria-label="Idioma / Language"></select>
+          <select id="arch" class="control lang-select" data-i18n-aria="arch.label"></select>
           <label class="field-inline flex items-center gap-(--space-xs)">
             <span class="label" data-i18n="example.label"></span>
             <select id="example" class="control"></select>
@@ -272,6 +260,7 @@ export function mountApp(root: HTMLElement): void {
   // ---- settings ------------------------------------------------------------
 
   langEl.replaceChildren(...LANGS.map((l) => h("option", { value: l.id }, l.name)));
+  wireArchSelect(q<HTMLSelectElement>("arch"), "msx88");
 
   function buildExampleOptions(): void {
     const keep = exampleEl.value;
