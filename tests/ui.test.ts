@@ -54,6 +54,10 @@ describe("built-in examples", () => {
     expect(sum.cpu.regs.AX).toBe(15);
     const print = simulate(EXAMPLES.find((e) => e.id === "print")!.state.source);
     expect(print.output).toBe("Hello, MSX88");
+    const stack = simulate(EXAMPLES.find((e) => e.id === "stack")!.state.source);
+    expect(stack.cpu.regs.AX).toBe(12);
+    expect(stack.cpu.regs.SP).toBe(0x8000);
+    expect(stack.cpu.regs.BP).toBe(0);
   });
 
   it("run the same program in both languages, with only the comments and titles translated", () => {

@@ -121,10 +121,74 @@ FIN     DB ?
 `,
 };
 
+const STACK_PARAMS: Record<Lang, string> = {
+  en: `; Pass two parameters on the stack and return their sum in AX.
+        ORG 1000H
+NUM1    DW  5            ; parameters (by value)
+NUM2    DW  7
+RES     DW  ?
+
+        ORG 2000H
+        MOV AX, NUM1
+        PUSH AX          ; push the parameters, first one first
+        MOV AX, NUM2
+        PUSH AX
+        CALL SUMA        ; pushes the return address
+        ADD SP, 4        ; the caller removes the parameters (RET has no operand here)
+        MOV RES, AX
+        INT 0
+
+        ORG 3000H
+SUMA:   PUSH BP
+        MOV BP, SP       ; BP now points at the saved BP: [BP+2] return address, [BP+4] 2nd parameter, [BP+6] 1st
+        PUSH BX          ; keep the caller's BX
+        MOV BX, BP
+        ADD BX, 4        ; BX -> second parameter (NUM2)
+        MOV AX, [BX]
+        ADD BX, 2        ; BX -> first parameter (NUM1)
+        ADD AX, [BX]     ; AX = NUM2 + NUM1
+        POP BX
+        POP BP
+        RET
+        END
+`,
+  es: `; Pasa dos parámetros por pila y devuelve su suma en AX.
+        ORG 1000H
+NUM1    DW  5            ; parámetros (por valor)
+NUM2    DW  7
+RES     DW  ?
+
+        ORG 2000H
+        MOV AX, NUM1
+        PUSH AX          ; apila los parámetros, el primero primero
+        MOV AX, NUM2
+        PUSH AX
+        CALL SUMA        ; apila la dirección de retorno
+        ADD SP, 4        ; quien llama saca los parámetros (RET no lleva operando acá)
+        MOV RES, AX
+        INT 0
+
+        ORG 3000H
+SUMA:   PUSH BP
+        MOV BP, SP       ; BP apunta al BP guardado: [BP+2] retorno, [BP+4] 2.º parámetro, [BP+6] 1.º
+        PUSH BX          ; conserva el BX de quien llama
+        MOV BX, BP
+        ADD BX, 4        ; BX -> segundo parámetro (NUM2)
+        MOV AX, [BX]
+        ADD BX, 2        ; BX -> primer parámetro (NUM1)
+        ADD AX, [BX]     ; AX = NUM2 + NUM1
+        POP BX
+        POP BP
+        RET
+        END
+`,
+};
+
 const TITLES: Record<string, Record<Lang, string>> = {
   f10: { en: "F10 counter with an interrupt handler", es: "Contador de F10 con rutina de interrupción" },
   sum: { en: "Sum with a LOOP", es: "Suma con un LOOP" },
   print: { en: "Print a message with INT 7", es: "Imprimir un mensaje con INT 7" },
+  stack: { en: "Pass parameters on the stack", es: "Pasaje de parámetros por pila" },
 };
 
 /** The built-in examples, with their titles and comments in the given language. */
@@ -147,6 +211,7 @@ export function examplesFor(lang: Lang): Example[] {
     },
     { id: "sum", title: TITLES.sum[lang], state: plain(SUM_LOOP[lang]) },
     { id: "print", title: TITLES.print[lang], state: plain(PRINT_MESSAGE[lang]) },
+    { id: "stack", title: TITLES.stack[lang], state: plain(STACK_PARAMS[lang]) },
   ];
 }
 
