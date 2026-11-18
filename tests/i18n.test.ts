@@ -84,3 +84,15 @@ describe("assembler and CPU messages in Spanish", () => {
     for (const s of samples) expect(translateCore(s, "es"), s).not.toBe(s);
   });
 });
+
+describe("EduMIPS64 messages", () => {
+  it("translate the assembler and CPU messages to Spanish", () => {
+    expect(translateCore("Line 3: Undefined label loop", "es")).toBe("Línea 3: Etiqueta no definida loop");
+    expect(translateCore("Line 2: dadd: r99 is not a register", "es")).toBe("Línea 2: dadd: r99 no es un registro");
+    expect(translateCore("Line 4: Misaligned memory access at address 4 (8 bytes)", "es")).toBe(
+      "Línea 4: Acceso a memoria desalineado en la dirección 4 (8 bytes)",
+    );
+    expect(translateCore("Line 1: Integer overflow", "es")).toBe("Línea 1: Desborde de entero");
+    expect(translateCore("Line 1: Integer overflow", "en")).toBe("Line 1: Integer overflow");
+  });
+});
