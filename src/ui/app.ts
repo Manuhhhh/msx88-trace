@@ -9,6 +9,8 @@ import { tabEdit } from "./indent";
 import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
+import { complete } from "./complete";
+import type { Completion } from "./complete";
 import { cleanName, deleteScript, listScripts, saveScript } from "./scripts";
 import { decodeState, encodeState } from "./share";
 import type { ShareState } from "./share";
@@ -68,7 +70,7 @@ export function mountApp(root: HTMLElement): void {
               <div id="line-hl" class="line-hl is-off"></div>
               <pre class="hl" aria-hidden="true"><code id="hl-code"></code></pre>
               <textarea id="source" class="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
-                data-i18n-aria="source.aria" aria-describedby="source-help"
+                data-i18n-aria="source.aria" aria-describedby="source-help" aria-autocomplete="list" aria-controls="suggest"
                 placeholder="ORG 2000H&#10;MOV AX, 5&#10;INT 0&#10;END"></textarea>
             </div>
           </div>
@@ -119,6 +121,8 @@ export function mountApp(root: HTMLElement): void {
         </section>
       </main>
     </div>
+    <ul id="suggest" class="suggest" role="listbox" data-i18n-aria="suggest.aria" hidden></ul>
+    <p id="suggest-status" class="visually-hidden" role="status"></p>
     <dialog id="save-dialog" class="help-dialog save-dialog" aria-labelledby="save-title">
       <form id="save-form" method="dialog" class="save-form">
         <h2 id="save-title" class="pane-title" data-i18n="scripts.saveTitle"></h2>
@@ -175,6 +179,8 @@ export function mountApp(root: HTMLElement): void {
   const saveDialogEl = q<HTMLDialogElement>("save-dialog");
   const saveNameEl = q<HTMLInputElement>("save-name");
   const saveNoteEl = q<HTMLParagraphElement>("save-note");
+  const suggestEl = q<HTMLUListElement>("suggest");
+  const suggestStatusEl = q<HTMLParagraphElement>("suggest-status");
 
   let result: SimResult | null = null;
   // what the trace area currently shows, so a language change can redraw it
@@ -283,6 +289,136 @@ export function mountApp(root: HTMLElement): void {
     const name = cleanName(saveNameEl.value);
     saveNoteEl.hidden = !listScripts().some((sc) => sc.name === name);
   }
+
+  // ---- suggestions and autocomplete -------------------------------------------
+
+  let sug: Completion | null = null;
+  let sugIndex = 0;
+  let sugManual = false;
+  /** Enter only accepts once the user has chosen with the arrows (or opened the list with Ctrl+Space). */
+  let sugChosen = false;
+  let accepting = false;
+
+  function closeSuggest(): void {
+    if (!sug) return;
+    sug = null;
+    suggestEl.hidden = true;
+    suggestEl.replaceChildren();
+    sourceEl.removeAttribute("aria-activedescendant");
+    suggestStatusEl.textContent = "";
+  }
+
+  let charWidth = 0;
+  function measureChar(cs: CSSStyleDeclaration): number {
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return parseFloat(cs.fontSize) * 0.6;
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    return ctx.measureText("0").width;
+  }
+
+  /** Viewport position of the start of the word being completed, and the height of a line. */
+  function wordPosition(offset: number): { x: number; y: number; lh: number } {
+    const cs = getComputedStyle(sourceEl);
+    const fontSize = parseFloat(cs.fontSize);
+    const lh = parseFloat(cs.lineHeight) || fontSize * 1.6;
+    charWidth ||= measureChar(cs);
+    const before = sourceEl.value.slice(0, offset);
+    const line = before.split("\n").length - 1;
+    let col = 0;
+    for (const c of before.slice(before.lastIndexOf("\n") + 1)) col = c === "\t" ? (Math.floor(col / 8) + 1) * 8 : col + 1;
+    const rect = sourceEl.getBoundingClientRect();
+    return {
+      x: rect.left + parseFloat(cs.paddingLeft) + col * charWidth - sourceEl.scrollLeft,
+      y: rect.top + parseFloat(cs.paddingTop) + (line + 1) * lh - sourceEl.scrollTop,
+      lh,
+    };
+  }
+
+  function paintSuggest(): void {
+    if (!sug) return;
+    suggestEl.replaceChildren(
+      ...sug.items.map((it, i) =>
+        h(
+          "li",
+          { id: `sg-${i}`, class: "suggest-item", role: "option", "aria-selected": String(i === sugIndex) },
+          h("span", { class: "suggest-label" }, it.label),
+          h("span", { class: "suggest-kind" }, t(it.detail ?? (`kind.${it.kind}` as Key))),
+        ),
+      ),
+    );
+    sourceEl.setAttribute("aria-activedescendant", `sg-${sugIndex}`);
+    suggestEl.children[sugIndex]?.scrollIntoView({ block: "nearest" });
+  }
+
+  function placeSuggest(): void {
+    if (!sug) return;
+    const { x, y, lh } = wordPosition(sug.from);
+    suggestEl.hidden = false;
+    const w = suggestEl.offsetWidth;
+    const hgt = suggestEl.offsetHeight;
+    const flip = y + hgt > window.innerHeight - 8 && y - lh - hgt > 8;
+    suggestEl.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
+    suggestEl.style.top = `${flip ? y - lh - hgt : y}px`;
+  }
+
+  function openSuggest(manual: boolean): void {
+    const next = complete(sourceEl.value, sourceEl.selectionStart, manual);
+    if (!next || sourceEl.selectionStart !== sourceEl.selectionEnd) {
+      closeSuggest();
+      return;
+    }
+    const keep = sug?.items[sugIndex]?.label;
+    sug = next;
+    sugManual = manual;
+    sugChosen = manual;
+    sugIndex = Math.max(0, next.items.findIndex((it) => it.label === keep));
+    paintSuggest();
+    placeSuggest();
+    suggestStatusEl.textContent = plural("suggest.count", next.items.length);
+  }
+
+  function moveSuggest(delta: number): void {
+    if (!sug) return;
+    sugIndex = (sugIndex + delta + sug.items.length) % sug.items.length;
+    sugChosen = true;
+    for (const [i, li] of [...suggestEl.children].entries()) li.setAttribute("aria-selected", String(i === sugIndex));
+    sourceEl.setAttribute("aria-activedescendant", `sg-${sugIndex}`);
+    suggestEl.children[sugIndex]?.scrollIntoView({ block: "nearest" });
+  }
+
+  function acceptSuggest(): void {
+    if (!sug) return;
+    const { from, to, items } = sug;
+    const text = items[sugIndex].insert;
+    closeSuggest();
+    accepting = true;
+    sourceEl.setSelectionRange(from, to);
+    // insertText keeps the browser's undo history; setRangeText is the fallback where it is unavailable
+    if (!document.execCommand("insertText", false, text)) {
+      sourceEl.setRangeText(text, from, to, "end");
+      sourceEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    accepting = false;
+  }
+
+  sourceEl.addEventListener("input", (e) => {
+    if (accepting) return;
+    const type = (e as InputEvent).inputType ?? "";
+    if (type === "insertText") openSuggest(false);
+    else if (sug && type.startsWith("delete")) openSuggest(sugManual);
+    else closeSuggest();
+  });
+  sourceEl.addEventListener("blur", closeSuggest);
+  sourceEl.addEventListener("scroll", placeSuggest); // typing near the bottom scrolls the editor: follow the word
+  window.addEventListener("resize", closeSuggest);
+  // mousedown, not click: the editor must keep the focus while an item is chosen
+  suggestEl.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const li = (e.target as HTMLElement).closest("li");
+    if (!li || !sug) return;
+    sugIndex = [...suggestEl.children].indexOf(li);
+    acceptSuggest();
+  });
 
   function updateSettingsLabel(): void {
     const n = eventsEl.children.length;
@@ -893,8 +1029,34 @@ export function mountApp(root: HTMLElement): void {
   sourceEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
+      closeSuggest();
       run();
       return;
+    }
+    // Ctrl+Space is often taken by the input method or the browser, so Ctrl+I opens the list too
+    if ((e.key === " " || e.key.toLowerCase() === "i") && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      openSuggest(true);
+      return;
+    }
+    if (sug) {
+      const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+      if (plain && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault();
+        moveSuggest(e.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (plain && (e.key === "Tab" || (e.key === "Enter" && sugChosen))) {
+        e.preventDefault();
+        acceptSuggest();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeSuggest();
+        return;
+      }
+      if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) closeSuggest();
     }
     if (e.key === "Escape") {
       leaveOnTab = true;

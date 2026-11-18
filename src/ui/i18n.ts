@@ -17,7 +17,7 @@ const HELP_EN = `
   <h3>Using it</h3>
   <ol>
     <li>Write a program in <strong>Source</strong>, or pick one from <strong>Example</strong>.</li>
-    <li>Press <strong>Run trace</strong> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. In the editor, <kbd>Tab</kbd> indents (<kbd>Shift</kbd> + <kbd>Tab</kbd> outdents); press <kbd>Esc</kbd> and then <kbd>Tab</kbd> to move on to the next control. If a line does not assemble, it is selected in the source with the reason.</li>
+    <li>Press <strong>Run trace</strong> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. In the editor, <kbd>Ctrl</kbd> + <kbd>I</kbd> (or <kbd>Ctrl</kbd> + <kbd>Space</kbd>) suggests instructions, registers and your own labels (suggestions also appear as you type; <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Tab</kbd> accepts, <kbd>Esc</kbd> closes). <kbd>Tab</kbd> indents (<kbd>Shift</kbd> + <kbd>Tab</kbd> outdents); press <kbd>Esc</kbd> and then <kbd>Tab</kbd> to move on to the next control. If a line does not assemble, it is selected in the source with the reason.</li>
     <li>Read the four tables under <strong>Trace</strong>. Every table is indexed by step: step 1 is the first instruction that ran.</li>
   </ol>
 </section>
@@ -68,7 +68,7 @@ const HELP_ES = `
   <h3>Cómo se usa</h3>
   <ol>
     <li>Escribí un programa en <strong>Código fuente</strong>, o elegí uno desde <strong>Ejemplo</strong>.</li>
-    <li>Tocá <strong>Ejecutar traza</strong> o apretá <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. En el editor, <kbd>Tab</kbd> indenta (<kbd>Shift</kbd> + <kbd>Tab</kbd> desindenta); apretá <kbd>Esc</kbd> y después <kbd>Tab</kbd> para pasar al siguiente control. Si una línea no ensambla, queda seleccionada en el código con el motivo.</li>
+    <li>Tocá <strong>Ejecutar traza</strong> o apretá <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. En el editor, <kbd>Ctrl</kbd> + <kbd>I</kbd> (o <kbd>Ctrl</kbd> + <kbd>Espacio</kbd>) sugiere instrucciones, registros y tus propias etiquetas (las sugerencias también aparecen mientras escribís; <kbd>↑</kbd> <kbd>↓</kbd> eligen, <kbd>Tab</kbd> acepta, <kbd>Esc</kbd> cierra). <kbd>Tab</kbd> indenta (<kbd>Shift</kbd> + <kbd>Tab</kbd> desindenta); apretá <kbd>Esc</kbd> y después <kbd>Tab</kbd> para pasar al siguiente control. Si una línea no ensambla, queda seleccionada en el código con el motivo.</li>
     <li>Leé las cuatro tablas de <strong>Traza</strong>. Todas están indexadas por paso: el paso 1 es la primera instrucción que se ejecutó.</li>
   </ol>
 </section>
@@ -117,6 +117,20 @@ const en = {
   "lang.label": "Language",
   "example.label": "Example",
   "example.choose": "Choose an example",
+  "kind.ins": "Instruction",
+  "kind.dir": "Directive",
+  "kind.reg": "Register",
+  "kind.lab": "Label",
+  "kind.sym": "Symbol",
+  "kind.num": "Interrupt",
+  "int.0": "End of program",
+  "int.3": "Breakpoint",
+  "int.5": "Random number in AL",
+  "int.6": "Read a character into [BX]",
+  "int.7": "Print AL characters from BX",
+  "suggest.aria": "Suggestions",
+  "suggest.count.one": "{n} suggestion",
+  "suggest.count.other": "{n} suggestions",
   "scripts.label": "My scripts",
   "scripts.choose": "Choose a saved script",
   "scripts.save": "Save",
@@ -135,7 +149,7 @@ const en = {
   "layout.btn": "Full-width source",
   "layout.help": "Gives the source the whole width and moves the trace below it.",
   "source.aria": "MSX88 assembly source",
-  "source.help": "Run with Ctrl+Enter. Tab indents; Esc then Tab leaves the editor. The link in the address bar reproduces this run.",
+  "source.help": "Run with Ctrl+Enter. Ctrl+I or Ctrl+Space suggests; Tab accepts a suggestion, otherwise it indents; Esc then Tab leaves the editor. The link in the address bar reproduces this run.",
   "settings.title": "Run settings",
   "settings.title.one": "Run settings, {n} interrupt request",
   "settings.title.other": "Run settings, {n} interrupt requests",
@@ -221,6 +235,20 @@ const es: Record<Key, string> = {
   "lang.label": "Idioma",
   "example.label": "Ejemplo",
   "example.choose": "Elegí un ejemplo",
+  "kind.ins": "Instrucción",
+  "kind.dir": "Directiva",
+  "kind.reg": "Registro",
+  "kind.lab": "Etiqueta",
+  "kind.sym": "Símbolo",
+  "kind.num": "Interrupción",
+  "int.0": "Fin del programa",
+  "int.3": "Breakpoint",
+  "int.5": "Número al azar en AL",
+  "int.6": "Lee un carácter en [BX]",
+  "int.7": "Imprime AL caracteres desde BX",
+  "suggest.aria": "Sugerencias",
+  "suggest.count.one": "{n} sugerencia",
+  "suggest.count.other": "{n} sugerencias",
   "scripts.label": "Mis scripts",
   "scripts.choose": "Elegí un script guardado",
   "scripts.save": "Guardar",
@@ -239,7 +267,7 @@ const es: Record<Key, string> = {
   "layout.btn": "Código a todo el ancho",
   "layout.help": "Le da al código todo el ancho y mueve la traza debajo.",
   "source.aria": "Código assembly MSX88",
-  "source.help": "Ejecutá con Ctrl+Enter. Tab indenta; Esc y después Tab saca el cursor del editor. El link de la barra de direcciones reproduce esta ejecución.",
+  "source.help": "Ejecutá con Ctrl+Enter. Ctrl+I o Ctrl+Espacio sugiere; Tab acepta una sugerencia y, si no hay, indenta; Esc y después Tab saca el cursor del editor. El link de la barra de direcciones reproduce esta ejecución.",
   "settings.title": "Ajustes de ejecución",
   "settings.title.one": "Ajustes de ejecución, {n} pedido de interrupción",
   "settings.title.other": "Ajustes de ejecución, {n} pedidos de interrupción",
@@ -350,7 +378,7 @@ export function t(key: Key, vars: Record<string, string | number> = {}, lang: La
 }
 
 /** Picks the singular or plural form of a count, e.g. `plural("summary.interrupts", 2)`. */
-export function plural(base: "settings.title" | "summary.interrupts", n: number, lang: Lang = getLang()): string {
+export function plural(base: "settings.title" | "summary.interrupts" | "suggest.count", n: number, lang: Lang = getLang()): string {
   return t(`${base}.${n === 1 ? "one" : "other"}` as Key, { n }, lang);
 }
 

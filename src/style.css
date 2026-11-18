@@ -215,3 +215,11 @@
 .save-dialog { width: min(26rem, calc(100vw - 2 * var(--space-md))); }
 .save-form { display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-md) var(--space-lg); }
 .save-actions { display: flex; justify-content: flex-end; gap: var(--space-xs); }
+
+.suggest { position: fixed; z-index: 30; min-width: 14rem; max-width: min(28rem, calc(100vw - 16px)); max-height: 14rem; margin: 0; padding: 2px; overflow-y: auto; list-style: none; background: var(--color-paper); color: var(--color-ink); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-input); box-shadow: 0 6px 20px oklch(21% 0.028 262 / 0.25); }
+.suggest[hidden] { display: none; }
+.suggest-item { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md); padding: var(--space-3xs) var(--space-sm); border-radius: var(--radius-input); cursor: pointer; }
+.suggest-label { font: 500 var(--text-sm)/1.4 var(--font-outlier); }
+.suggest-kind { font: 400 var(--text-xs, 0.75rem)/1.4 var(--font-body); color: var(--color-ink-2); text-align: right; }
+.suggest-item[aria-selected="true"] { background: var(--color-accent-wash); color: var(--color-accent-deep); }
+@media (hover: hover) { .suggest-item:hover { background: var(--color-paper-2); } .suggest-item[aria-selected="true"]:hover { background: var(--color-accent-wash); } }
