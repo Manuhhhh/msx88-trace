@@ -12,11 +12,12 @@ Objective: add a second mode to msx88-trace that traces EduMIPS64 (MIPS64) synta
 - T1 (S4) MIPS64 lexer/parser/assembler to a program image — inline — done, 21 tests + strict tsc OK, commit f47a7c5. Tests written after the code (no RED observed).
 - T2 (S4) functional CPU + per-instruction trace — inline — done, 16 tests (RED observed: module missing) + full suite 186 + strict tsc OK, commit 9344ba1. Assumptions flagged in code: big-endian memory, overflow traps, misaligned error, syscall 0 and 5 only.
 - T3 (S2, S5) pipeline timing model over the executed stream (cycle diagram, stalls, forwarding flag) — inline — done, 12 tests (RED observed: module missing) + full suite 198 + strict tsc OK, commit 61e1483. Timing is an ASSUMPTION documented at the top of src/mips/pipeline.ts; not yet checked against the EduMIPS64 manual.
-- T4 (S3) mode selector + MIPS tables and cycle diagram in the UI, MSX88 untouched — inline — pending
-- T5 (S3) highlight / autocomplete / examples / manual / i18n for MIPS — inline — pending
+- T4 (S3) mode selector + MIPS tables and cycle diagram in the UI, MSX88 untouched — inline — done, commit 7c7668a. Verified in Chromium (screenshots: loop example, RAW without/with forwarding 16 vs 10 cycles, assembler error, MSX88 header unchanged). Stepper (step-by-step) view NOT built for MIPS.
+- T5 (S3) highlight / autocomplete / examples / manual / i18n for MIPS — inline — partly done in T4: highlight, 4 examples, i18n, Spanish messages. Pending: autocomplete, linter, MIPS instruction manual page.
 
 ## Log
 - L1 (2026-11-18): "Quiero agregar otro modo, que es para la sintaxis de edumips64"
 - L2 (2026-11-18): scope question answered "Con pipeline".
 - Route: all inline; units are sequential (T3 consumes T2's stream, T4 consumes both), so no Writer trigger.
 - Research: EduMIPS64 labels RAW/WAW/structural stalls in the cycle diagram and lets forwarding be toggled (edumips.org, edumips64.readthedocs.io). Exact per-instruction timing NOT verified yet.
+- L3 (2026-11-18): UI decision: separate screen (mips-app.ts) chosen by ?arch=mips, not wired into app.ts, to keep MSX88 untouched; switching reloads the page.
