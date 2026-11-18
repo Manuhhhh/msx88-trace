@@ -23,6 +23,15 @@ describe("instruction manual", () => {
     expect(INT_SERVICES.map((s) => s.n)).toEqual([0, 3, 5, 6, 7]);
   });
 
+  it("documents the timer ports and the PIC ports, in both languages", () => {
+    for (const lang of ["en", "es"] as const) {
+      const html = manualDoc(lang).body;
+      for (const port of ["10H CONT", "11H COMP", "20H EOI", "21H IMR", "24H to 2BH"]) {
+        if (lang === "en" || !port.includes(" to ")) expect(html, `${lang} ${port}`).toContain(port);
+      }
+    }
+  });
+
   it("gives every instruction its own section and a link to it, in both languages", () => {
     for (const lang of ["es", "en"] as const) {
       const { nav, body } = manualDoc(lang);

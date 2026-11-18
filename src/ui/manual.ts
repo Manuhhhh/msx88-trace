@@ -514,6 +514,8 @@ const DIRECTIVES: { syntax: string; effect: L }[] = [
 ];
 
 const PORTS: { port: string; effect: L }[] = [
+  { port: "10H CONT", effect: l("Timer counter. It goes up by one every second, but only after the first write to it. When it equals COMP the timer raises INT1. Write 0 to restart it.", "Contador del timer. Sube de a uno por segundo, pero recién después de la primera escritura. Cuando iguala a COMP el timer dispara INT1. Escribir 0 lo reinicia.") },
+  { port: "11H COMP", effect: l("Timer compare value. The timer interrupt fires when CONT reaches it.", "Valor de comparación del timer. La interrupción del timer se dispara cuando CONT lo alcanza.") },
   { port: "20H EOI", effect: l("Write 20H to end the interrupt being served.", "Escribir 20H termina la interrupción que se está atendiendo.") },
   { port: "21H IMR", effect: l("Interrupt mask: a 1 bit blocks that line. It starts at FFH, everything blocked.", "Máscara de interrupciones: un bit en 1 bloquea esa línea. Arranca en FFH, todo bloqueado.") },
   { port: "22H IRR", effect: l("Requests waiting (read only).", "Pedidos pendientes (solo lectura).") },
@@ -534,8 +536,8 @@ const TEXT = {
     operands: "Operands",
     directives: "Directives and syntax",
     instructions: "Instructions",
-    ports: "Interrupt controller ports",
-    portsIntro: "Use IN and OUT with these ports to program the interrupt controller. F10 is line 0, the timer is line 1 and the handshake is line 2.",
+    ports: "Timer and interrupt controller ports",
+    portsIntro: "Use IN and OUT with these ports to program the timer and the interrupt controller. F10 is line 0, the timer is line 1 and the handshake is line 2. The simulator has no real clock: one second of the timer is 100 executed steps.",
     port: "Port",
   },
   es: {
@@ -550,8 +552,8 @@ const TEXT = {
     operands: "Operandos",
     directives: "Directivas y sintaxis",
     instructions: "Instrucciones",
-    ports: "Puertos del controlador de interrupciones",
-    portsIntro: "Con IN y OUT sobre estos puertos se programa el controlador de interrupciones. F10 es la línea 0, el timer la línea 1 y el handshake la línea 2.",
+    ports: "Puertos del timer y del controlador de interrupciones",
+    portsIntro: "Con IN y OUT sobre estos puertos se programan el timer y el controlador de interrupciones. F10 es la línea 0, el timer la línea 1 y el handshake la línea 2. El simulador no tiene reloj real: un segundo del timer son 100 pasos ejecutados.",
     port: "Puerto",
   },
 } as const;
