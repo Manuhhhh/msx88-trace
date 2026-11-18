@@ -211,3 +211,7 @@
 }
 .log tr.is-new td, .log tr.is-new th, .log td.is-new { animation: ledger-in 450ms var(--ease-out) backwards; }
 .log tr.is-new td:nth-child(n+2) { animation-delay: 40ms; }
+
+.save-dialog { width: min(26rem, calc(100vw - 2 * var(--space-md))); }
+.save-form { display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-md) var(--space-lg); }
+.save-actions { display: flex; justify-content: flex-end; gap: var(--space-xs); }

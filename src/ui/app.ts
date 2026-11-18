@@ -9,6 +9,7 @@ import { tabEdit } from "./indent";
 import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
+import { cleanName, deleteScript, listScripts, saveScript } from "./scripts";
 import { decodeState, encodeState } from "./share";
 import type { ShareState } from "./share";
 
@@ -43,6 +44,13 @@ export function mountApp(root: HTMLElement): void {
             <span class="label" data-i18n="example.label"></span>
             <select id="example" class="control"></select>
           </label>
+          <label class="field-inline flex items-center gap-(--space-xs)">
+            <span class="label" data-i18n="scripts.label"></span>
+            <select id="scripts" class="control"></select>
+          </label>
+          <button type="button" id="script-save" class="key" data-i18n="scripts.save"></button>
+          <button type="button" id="script-delete" class="key key--quiet" data-i18n="scripts.delete" hidden></button>
+          <span id="script-status" class="label" role="status"></span>
           <button type="button" id="help-open" class="key" aria-haspopup="dialog" data-i18n="help.open"></button>
           <button type="button" id="run" class="key key--primary" data-i18n="run"></button>
         </div>
@@ -111,6 +119,20 @@ export function mountApp(root: HTMLElement): void {
         </section>
       </main>
     </div>
+    <dialog id="save-dialog" class="help-dialog save-dialog" aria-labelledby="save-title">
+      <form id="save-form" method="dialog" class="save-form">
+        <h2 id="save-title" class="pane-title" data-i18n="scripts.saveTitle"></h2>
+        <label class="field flex flex-col gap-(--space-3xs)">
+          <span class="label" data-i18n="scripts.name"></span>
+          <input id="save-name" class="control" type="text" maxlength="60" autocomplete="off" required />
+        </label>
+        <p id="save-note" class="help" data-i18n="scripts.replace" hidden></p>
+        <div class="save-actions">
+          <button type="button" id="save-cancel" class="key" data-i18n="scripts.cancel"></button>
+          <button type="submit" class="key key--primary" data-i18n="scripts.confirm"></button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="help" class="help-dialog" aria-labelledby="help-title">
       <div class="help-head">
         <h2 id="help-title" class="pane-title" data-i18n="help.title"></h2>
@@ -147,6 +169,12 @@ export function mountApp(root: HTMLElement): void {
   const summaryEl = q<HTMLParagraphElement>("summary");
   const exampleEl = q<HTMLSelectElement>("example");
   const langEl = q<HTMLSelectElement>("lang");
+  const scriptsEl = q<HTMLSelectElement>("scripts");
+  const scriptDeleteEl = q<HTMLButtonElement>("script-delete");
+  const scriptStatusEl = q<HTMLSpanElement>("script-status");
+  const saveDialogEl = q<HTMLDialogElement>("save-dialog");
+  const saveNameEl = q<HTMLInputElement>("save-name");
+  const saveNoteEl = q<HTMLParagraphElement>("save-note");
 
   let result: SimResult | null = null;
   // what the trace area currently shows, so a language change can redraw it
@@ -229,6 +257,31 @@ export function mountApp(root: HTMLElement): void {
       ...examplesFor(getLang()).map((ex) => h("option", { value: ex.id }, ex.title)),
     );
     exampleEl.value = keep;
+  }
+
+  // ---- saved scripts (localStorage) -----------------------------------------
+
+  function buildScriptOptions(select?: string): void {
+    const keep = select ?? scriptsEl.value;
+    const saved = listScripts();
+    scriptsEl.replaceChildren(
+      h("option", { value: "" }, t("scripts.choose")),
+      ...saved.map((sc) => h("option", { value: sc.name }, sc.name)),
+    );
+    scriptsEl.value = saved.some((sc) => sc.name === keep) ? keep : "";
+    scriptDeleteEl.hidden = scriptsEl.value === "";
+  }
+
+  let statusTimer: number | undefined;
+  function flashStatus(text: string): void {
+    scriptStatusEl.textContent = text;
+    window.clearTimeout(statusTimer);
+    statusTimer = window.setTimeout(() => (scriptStatusEl.textContent = ""), 4000);
+  }
+
+  function updateReplaceNote(): void {
+    const name = cleanName(saveNameEl.value);
+    saveNoteEl.hidden = !listScripts().some((sc) => sc.name === name);
   }
 
   function updateSettingsLabel(): void {
@@ -699,7 +752,7 @@ export function mountApp(root: HTMLElement): void {
   });
   // arrow keys step through the run, unless the keys belong to a field or the dialog is open
   document.addEventListener("keydown", (e) => {
-    if (mode !== "step" || helpEl.open || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (mode !== "step" || helpEl.open || saveDialogEl.open || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
     const t = e.target as HTMLElement;
     if (t.closest("input, textarea, select, [contenteditable]")) return;
@@ -785,6 +838,42 @@ export function mountApp(root: HTMLElement): void {
     run();
   }
 
+  q("script-save").addEventListener("click", () => {
+    saveNameEl.value = scriptsEl.value;
+    updateReplaceNote();
+    saveDialogEl.showModal();
+    saveNameEl.select();
+  });
+  saveNameEl.addEventListener("input", updateReplaceNote);
+  q("save-cancel").addEventListener("click", () => saveDialogEl.close());
+  q("save-form").addEventListener("submit", (e) => {
+    if (cleanName(saveNameEl.value) === "") {
+      e.preventDefault(); // a blank name keeps the dialog open
+      saveNameEl.focus();
+      return;
+    }
+    const saved = saveScript(saveNameEl.value, readState());
+    if (saved === null) {
+      flashStatus(t("scripts.failed"));
+      return;
+    }
+    buildScriptOptions(saved);
+    flashStatus(t("scripts.saved", { name: saved }));
+  });
+  scriptsEl.addEventListener("change", () => {
+    scriptDeleteEl.hidden = scriptsEl.value === "";
+    const sc = listScripts().find((x) => x.name === scriptsEl.value);
+    if (!sc) return;
+    writeState(sc.state);
+    run();
+  });
+  scriptDeleteEl.addEventListener("click", () => {
+    const name = scriptsEl.value;
+    if (name && deleteScript(name)) {
+      buildScriptOptions("");
+      flashStatus(t("scripts.deleted", { name }));
+    }
+  });
   q("help-open").addEventListener("click", () => helpEl.showModal());
   q("help-close").addEventListener("click", () => helpEl.close());
   // a click on the backdrop (the dialog element itself, outside its content) closes it
@@ -848,6 +937,7 @@ export function mountApp(root: HTMLElement): void {
   function applyLanguage(): void {
     applyStaticText();
     buildExampleOptions();
+    buildScriptOptions();
     const events = readState().events;
     eventsEl.replaceChildren();
     for (const ev of events) addEventRow(ev);
@@ -871,6 +961,7 @@ export function mountApp(root: HTMLElement): void {
 
   applyStaticText();
   buildExampleOptions();
+  buildScriptOptions();
   const initial = decodeState(location.hash.slice(1));
   writeState(initial ?? { source: "", input: "", maxSteps: 2000, events: [] });
   if (initial) run();
