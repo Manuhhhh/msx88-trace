@@ -21,8 +21,9 @@
 .pane { display: flex; flex-direction: column; gap: var(--space-sm); min-width: 0; min-height: 0; }
 @media (min-width: 60rem) {
   .shell { height: 100dvh; }
-  .workspace { grid-template-columns: minmax(0, 22rem) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-  .pane--source { overflow-y: auto; padding-right: var(--space-2xs); }
+  .workspace { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .pane--source { overflow: hidden; }
+  .pane--source .settings-body { max-height: 40dvh; overflow-y: auto; }
   .pane--trace { overflow: hidden; }
 }
 
@@ -39,13 +40,32 @@
 .graphite { background: var(--color-graphite); color: var(--color-graphite-ink); border-color: var(--color-graphite-2); }
 .graphite :focus-visible { outline-color: var(--color-accent-2); }
 
-.editor { display: flex; min-height: 18rem; }
-.code { flex: 1; width: 100%; min-height: 18rem; padding: var(--space-md); border: 0; border-radius: inherit; background: transparent; color: inherit; resize: vertical; white-space: pre; overflow: auto; tab-size: 8; font: 400 var(--text-sm)/1.6 var(--font-outlier); caret-color: var(--color-accent-2); }
+.editor { display: flex; flex: 1; min-height: 22rem; overflow: hidden; }
+.gutter { flex: none; overflow: hidden; width: calc(var(--digits, 1) * 1ch + 2 * var(--space-sm)); padding-top: var(--space-md); border-right: var(--rule-hair) solid var(--color-graphite-2); font: 400 var(--text-sm)/1.6 var(--font-outlier); color: var(--color-graphite-muted); text-align: right; user-select: none; }
+.gutter-lines { margin: 0; padding-inline: var(--space-sm); font: inherit; }
+.editor-scroll { position: relative; flex: 1; min-width: 0; display: flex; }
+/* the highlighted line sits behind the (transparent) textarea */
+.line-hl { position: absolute; left: 0; right: 0; background: color-mix(in oklab, var(--color-accent-2) 28%, transparent); box-shadow: inset 3px 0 0 var(--color-accent-2); pointer-events: none; }
+.code, .hl { padding: var(--space-md); white-space: pre; tab-size: 8; font: 400 var(--text-sm)/1.6 var(--font-outlier); font-variant-ligatures: none; letter-spacing: 0; }
+/* the textarea only carries the caret and the selection; the colour comes from the copy underneath */
+.code { position: relative; flex: 1; width: 100%; min-height: 22rem; border: 0; border-radius: inherit; background: transparent; color: transparent; resize: none; overflow: auto; caret-color: var(--color-accent-2); }
+.hl { position: absolute; inset: 0; margin: 0; overflow: hidden; pointer-events: none; color: var(--color-graphite-ink); }
+.hl code { display: block; font: inherit; will-change: transform; }
+.tk-ins { color: var(--color-accent-2); font-weight: 600; }
+.tk-dir { color: oklch(78% 0.11 310); }
+.tk-reg { color: oklch(81% 0.09 190); }
+.tk-num { color: oklch(83% 0.1 80); }
+.tk-str { color: oklch(80% 0.11 150); }
+.tk-lab { color: var(--color-graphite-ink); font-weight: 600; }
+.tk-com { color: var(--color-graphite-muted); }
 .code::placeholder { color: var(--color-graphite-muted); }
-.code::selection { background: color-mix(in oklab, var(--color-accent-2) 45%, transparent); color: var(--color-graphite-ink); }
+.code::selection { background: color-mix(in oklab, var(--color-accent-2) 45%, transparent); color: transparent; }
 .code:focus-visible { outline-offset: -3px; }
 
-.settings { display: flex; flex-direction: column; gap: var(--space-sm); padding-top: var(--space-sm); border-top: var(--rule-hair) solid var(--color-rule); }
+.settings { padding-top: var(--space-xs); border-top: var(--rule-hair) solid var(--color-rule); }
+.settings > summary { cursor: pointer; padding-block: var(--space-3xs); }
+.settings > summary:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.settings-body { display: flex; flex-direction: column; gap: var(--space-sm); padding-top: var(--space-sm); }
 .events { display: flex; flex-direction: column; gap: var(--space-xs); margin: 0; padding: 0; border: 0; min-width: 0; }
 .events-list { list-style: none; margin: 0; padding: 0; }
 
@@ -70,7 +90,8 @@
 
 /* ---- region states -------------------------------------------------------- */
 
-.region { display: flex; flex-direction: column; gap: var(--space-sm); min-height: 0; flex: 1; }
+.region { display: flex; flex-direction: column; gap: var(--space-sm); min-height: 0; flex: 0 0 auto; }
+.region:empty { display: none; }
 .state { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-sm); max-width: 40rem; padding: var(--space-lg) 0; }
 .state-title { font: 600 var(--text-lg)/1.2 var(--font-display); letter-spacing: var(--tracking-display); }
 .state--error .state-title { color: var(--color-error); }
@@ -80,45 +101,88 @@
 .screen .label { color: var(--color-graphite-muted); }
 .screen pre { margin: 0; font: 400 var(--text-sm)/1.5 var(--font-outlier); white-space: pre-wrap; }
 
-/* ---- the trace ledger ----------------------------------------------------- */
+/* ---- the trace ledgers ---------------------------------------------------- */
 
-.trace-wrap { flex: 1; min-height: 12rem; overflow: auto; }
-.trace { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
-.trace thead { position: sticky; top: 0; z-index: var(--z-sticky); }
-.trace th { padding: var(--space-xs) var(--space-xs); background: var(--color-paper); border-bottom: var(--rule-hair) solid var(--color-rule-2); font: 500 var(--text-sm)/1.3 var(--font-display); color: var(--color-muted); white-space: nowrap; text-align: right; }
-.trace th.text { text-align: left; }
-.trace td { padding: var(--space-2xs) var(--space-xs); border-bottom: var(--rule-hair) solid var(--color-rule); white-space: nowrap; text-align: right; font-family: var(--font-outlier); color: var(--color-muted); }
-.trace td.text { text-align: left; }
-.trace td.instr { color: var(--color-ink); }
-.trace td.note { font-family: var(--font-body); color: var(--color-ink-2); }
-.trace td.num { color: var(--color-ink-2); }
-.trace td.is-changed { background: var(--color-accent-wash); color: var(--color-ink); font-weight: 500; }
-.trace td.flag { padding-inline: var(--space-xs); }
-.trace tr.row { cursor: pointer; }
-@media (hover: hover) { .trace tr.row:hover td:not(.is-changed) { background: var(--color-paper-2); } }
-.trace tr.row[aria-current="true"] td:not(.is-changed) { background: var(--color-paper-3); }
-.trace tr.row:focus-visible { outline: 2px solid var(--color-focus); outline-offset: -2px; }
-/* the signature: an interrupt is its own row, edged on the left */
-.trace tr.row--irq td:first-child { box-shadow: inset 3px 0 0 var(--color-accent-deep); }
-.trace tr.row--irq td.instr { font: 500 var(--text-sm)/1.3 var(--font-display); color: var(--color-accent-deep); }
-/* phones: the instruction names the row, so it stays pinned while the registers scroll */
-@media (max-width: 59.99rem) {
-  .col-step, .col-ip { display: none; }
-  .trace th.col-instr, .trace td.col-instr { position: sticky; left: 0; max-width: 10rem; overflow: hidden; text-overflow: ellipsis; background: var(--color-paper); }
-  .trace th.col-instr { z-index: var(--z-raised); }
-  .trace tr.row--irq td.col-instr { box-shadow: inset 3px 0 0 var(--color-accent-deep); }
-  .trace-wrap { max-height: 70dvh; }
+.ledgers { display: grid; gap: var(--space-sm); grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
+.ledgers:empty { display: none; }
+.layout-toggle { display: none; }
+@media (min-width: 60rem) {
+  .ledgers { grid-template-columns: var(--cols, repeat(2, minmax(0, 1fr))); grid-template-rows: var(--rows, minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr)); }
+  /* split view: eight register columns and the stack need the full width; flags and heap share a row */
+  .shell:not([data-layout="wide"]) .ledger:nth-child(1), .shell:not([data-layout="wide"]) .ledger:nth-child(4) { grid-column: 1 / -1; }
+  /* full-width source: it takes the top of the screen, the four ledgers sit side by side below */
+  .shell[data-layout="wide"] { height: auto; min-height: 100dvh; }
+  .shell[data-layout="wide"] .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; }
+  .shell[data-layout="wide"] .pane--source, .shell[data-layout="wide"] .pane--trace { overflow: visible; }
+  /* the editor fills what is left of the screen under the header; the trace follows when you scroll */
+  .shell[data-layout="wide"] .editor { flex: none; height: max(24rem, calc(100dvh - 17rem)); }
+  .shell[data-layout="wide"] .ledgers { flex: none; height: 28rem; }
+  .layout-toggle { display: inline-block; }
 }
+.layout-toggle[aria-pressed="true"] { color: var(--color-accent-deep); text-decoration-color: var(--color-accent); background: var(--color-accent-wash); }
+/* one ledger enlarged: it takes the whole trace area, the others step aside */
+.ledgers[data-expanded] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.ledgers[data-expanded] .ledger:not(.is-expanded) { display: none; }
+.ledgers[data-expanded] .ledger { grid-column: 1 / -1; }
+.ledger { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper); }
+.ledger-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3xs) var(--space-sm); padding: var(--space-xs) var(--space-sm); border-bottom: var(--rule-hair) solid var(--color-rule); background: var(--color-paper-2); }
+.ledger-hint { margin-right: auto; }
+.ledger-tools { display: inline-flex; gap: var(--space-3xs); margin-left: auto; }
+.ledger-btn { min-height: 28px; padding: 0 var(--space-2xs); font-size: var(--text-sm); }
+@media (pointer: coarse) { .ledger-btn { min-height: 40px; } }
+.ledger.is-collapsed { align-self: start; }
+.ledger.is-collapsed .ledger-body, .ledger.is-collapsed .ledger-hint { display: none; }
+.ledger.is-collapsed .ledger-head { border-bottom: 0; }
+.ledger-body { flex: 1; min-height: 12rem; overflow: auto; padding: var(--space-xs); }
+@media (min-width: 60rem) { .ledger-body { min-height: 0; } }
+.ledger-body .none { padding-block: var(--space-xs); }
 
-/* ---- step detail ---------------------------------------------------------- */
+.hover-line { min-height: 1.5em; margin: 0; font: 400 var(--text-sm)/1.5 var(--font-outlier); color: var(--color-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hover-line:empty { display: none; }
 
-.detail { min-height: 0; max-height: 14rem; overflow: auto; background: var(--color-paper-2); padding: var(--space-sm) var(--space-md); }
-.detail:empty { display: none; }
-/* pinned to the foot of the trace pane while the ledger scrolls above it */
-@media (min-width: 60rem) { .detail { position: sticky; bottom: 0; z-index: var(--z-sticky); } }
-.detail-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-sm); margin-bottom: var(--space-xs); font: 600 var(--text-md)/1.2 var(--font-display); max-width: none; }
-.instr-inline { font: 400 var(--text-sm)/1.2 var(--font-outlier); color: var(--color-ink-2); }
-.detail-grid { display: grid; gap: var(--space-md); grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
-.detail-block { display: flex; flex-direction: column; gap: var(--space-3xs); min-width: 0; }
-.mono-list { margin: 0; padding: 0; list-style: none; font: 400 var(--text-sm)/1.6 var(--font-outlier); }
-.none { font-size: var(--text-sm); color: var(--color-muted); }
+.log { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.log thead { position: sticky; top: 0; z-index: var(--z-sticky); }
+.log th { padding: var(--space-3xs) var(--space-2xs); background: var(--color-paper); border-bottom: var(--rule-hair) solid var(--color-rule-2); font: 500 var(--text-sm)/1.3 var(--font-display); color: var(--color-muted); text-align: left; white-space: nowrap; }
+.log th.val, .log td.val, .log th.num, .log td.num { text-align: right; }
+.log tbody th { font-family: var(--font-outlier); font-weight: 400; color: var(--color-ink-2); position: sticky; left: 0; background: var(--color-paper); }
+.log td { padding: var(--space-3xs) var(--space-2xs); border-bottom: var(--rule-hair) solid var(--color-rule); font-family: var(--font-outlier); white-space: nowrap; color: var(--color-muted); }
+.log td.is-set { color: var(--color-ink); font-weight: 500; background: var(--color-accent-wash); }
+.log tr.log-row--start td, .log tr.log-row--start th { color: var(--color-muted); font-style: italic; }
+.log tr.log-row[data-step] { cursor: default; }
+/* hovering a step lights it in every table at once */
+.log tr.is-hover td, .log tr.is-hover th { background: var(--color-paper-3); color: var(--color-ink); box-shadow: inset 0 1px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent); }
+.log tr.is-hover td.is-set { background: var(--color-accent-wash); }
+/* the signature: an interrupt step is edged on the left */
+.log tr.log-row--irq th { box-shadow: inset 3px 0 0 var(--color-accent-deep); }
+.log tr.log-row--irq.is-hover th { box-shadow: inset 3px 0 0 var(--color-accent-deep), inset 0 1px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent); }
+
+/* stack and heap: addresses down the side, the values each one held across */
+.log--stack { width: max-content; min-width: 0; }
+.log--stack th.val { font-weight: 400; font-style: italic; text-align: left; }
+.log--stack td.val { padding-inline: var(--space-2xs); }
+.log--stack th.val { white-space: nowrap; }
+.log--stack td.val { text-align: left; }
+.slot-tag { margin-left: var(--space-2xs); font: 400 0.75em/1 var(--font-display); color: var(--color-muted); }
+.cell-step { margin-left: 0.4em; font-size: 0.75em; color: var(--color-muted); }
+/* a popped or overwritten value: still readable, no longer current */
+.log td.is-stale { background: transparent; color: var(--color-muted); font-weight: 400; text-decoration: line-through; text-decoration-color: var(--color-rule-2); }
+.log td.is-hover { background: var(--color-paper-3); color: var(--color-ink); box-shadow: inset 0 1px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent); }
+.log td.is-start { color: var(--color-muted); font-style: italic; }
+
+/* ---- how it works ---------------------------------------------------------- */
+
+.help-dialog { margin: auto; width: min(42rem, calc(100vw - 2 * var(--space-md))); max-height: min(85dvh, 46rem); padding: 0; border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-card); background: var(--color-paper); color: var(--color-ink); overflow: hidden; }
+.help-dialog[open] { display: flex; flex-direction: column; }
+.help-dialog::backdrop { background: color-mix(in oklab, var(--color-graphite) 55%, transparent); }
+.help-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm) var(--space-lg); border-bottom: var(--rule-hair) solid var(--color-rule); }
+.help-body { overflow-y: auto; padding: var(--space-md) var(--space-lg) var(--space-lg); display: flex; flex-direction: column; gap: var(--space-md); }
+.help-body h3 { font: 600 var(--text-md)/1.2 var(--font-display); margin-bottom: var(--space-2xs); max-width: none; }
+.help-body p, .help-body li, .help-body dd { font-size: var(--text-sm); color: var(--color-ink-2); max-width: 62ch; }
+.help-body ol, .help-body ul { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: var(--space-3xs); }
+.help-body ol { list-style: decimal; }
+.help-body ul { list-style: disc; }
+.help-body dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2xs) var(--space-sm); }
+.help-body dt { font: 600 var(--text-sm)/1.5 var(--font-display); color: var(--color-ink); }
+.help-body dd { margin: 0; }
+.help-body kbd, .help-body code { font: 500 0.92em/1 var(--font-outlier); padding: 1px 5px; border: var(--rule-hair) solid var(--color-rule-2); border-radius: 4px; background: var(--color-paper-2); color: var(--color-ink); }
+@media (max-width: 40rem) { .help-body dl { grid-template-columns: minmax(0, 1fr); } .help-body dd { margin-bottom: var(--space-2xs); } }

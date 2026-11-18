@@ -94,7 +94,7 @@ export interface CpuOptions {
 }
 
 // ASSUMPTION: SP starts at 8000h (documented MSX88 convention, not verified here).
-const DEFAULT_SP = 0x8000;
+export const DEFAULT_SP = 0x8000;
 const STACK_VIEW_WORDS = 16;
 const FLAG_BITS: Record<keyof Flags, number> = {
   CF: 0, PF: 2, AF: 4, ZF: 6, SF: 7, IF: 9, OF: 11,
