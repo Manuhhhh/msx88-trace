@@ -1,0 +1,19 @@
+[
+ {
+  "scope": "app",
+  "shape": "app screen",
+  "theme": "cobalt",
+  "axes": "light/grotesk-sans/cool",
+  "signature": "the trace ledger with interrupt steps as their own rows",
+  "sections": [
+   "top bar",
+   "source and settings",
+   "trace ledger",
+   "step detail"
+  ],
+  "waived": [],
+  "prompt": "web trace generator for MSX88 assembly for university students",
+  "date": "2026-11-18",
+  "mode": "build"
+ }
+]

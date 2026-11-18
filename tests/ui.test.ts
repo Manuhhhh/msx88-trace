@@ -1,0 +1,58 @@
+import { describe, expect, it } from "vitest";
+import { simulate } from "../src/core/simulate";
+import { EXAMPLES } from "../src/ui/examples";
+import { bin8, hex16 } from "../src/ui/format";
+import { decodeState, encodeState } from "../src/ui/share";
+import type { ShareState } from "../src/ui/share";
+
+describe("format", () => {
+  it("pads hex and binary", () => {
+    expect(hex16(0x2a)).toBe("002A");
+    expect(bin8(5)).toBe("00000101");
+  });
+});
+
+describe("share state", () => {
+  const state: ShareState = {
+    source: "MOV AL, 'ñ' ; acentuación\nHLT\nEND",
+    input: "x",
+    maxSteps: 500,
+    events: [{ step: 3, line: 0 }],
+  };
+
+  it("round-trips unicode source through the URL encoding", () => {
+    const encoded = encodeState(state);
+    expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(decodeState(encoded)).toEqual(state);
+  });
+
+  it("rejects garbage and malformed shapes without throwing", () => {
+    expect(decodeState("not base64 !!")).toBeNull();
+    expect(decodeState(encodeState({ ...state, maxSteps: 0 }))).toBeNull();
+    expect(decodeState(encodeState({ ...state, events: [{ step: 0, line: 0 }] }))).toBeNull();
+    expect(decodeState(encodeState({ ...state, events: [{ step: 1, line: 9 }] }))).toBeNull();
+  });
+});
+
+describe("built-in examples", () => {
+  for (const ex of EXAMPLES) {
+    it(`"${ex.title}" assembles and halts`, () => {
+      const r = simulate(ex.state.source, {
+        input: ex.state.input,
+        maxSteps: ex.state.maxSteps,
+        irqEvents: ex.state.events,
+      });
+      expect(r.reason).toBe("halted");
+    });
+  }
+
+  it("the F10 example serves each press and the sum example computes 15", () => {
+    const f10 = EXAMPLES.find((e) => e.id === "f10")!.state;
+    const r = simulate(f10.source, { irqEvents: f10.events, maxSteps: f10.maxSteps });
+    expect(r.steps.filter((s) => s.kind === "irq")).toHaveLength(3);
+    const sum = simulate(EXAMPLES.find((e) => e.id === "sum")!.state.source);
+    expect(sum.cpu.regs.AX).toBe(15);
+    const print = simulate(EXAMPLES.find((e) => e.id === "print")!.state.source);
+    expect(print.output).toBe("Hello, MSX88");
+  });
+});
