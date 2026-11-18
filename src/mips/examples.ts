@@ -84,6 +84,7 @@ sum:    .word 0
         .text
         daddi r1, r0, v       ; pointer
         daddi r2, r0, 4       ; count
+        daddi r4, r0, 0       ; sum
 loop:   ld    r3, 0(r1)
         dadd  r4, r4, r3      ; uses r3 right after the load
         daddi r1, r1, 8
@@ -100,6 +101,7 @@ sum:    .word 0
         .text
         daddi r1, r0, v       ; puntero
         daddi r2, r0, 4       ; cantidad
+        daddi r4, r0, 0       ; suma
 loop:   ld    r3, 0(r1)
         dadd  r4, r4, r3      ; usa r3 justo después del load
         daddi r1, r1, 8

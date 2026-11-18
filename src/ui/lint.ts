@@ -290,9 +290,9 @@ export function lint(source: string, run: LintInput = {}, on: LintSettings = DEF
 
 const SETTINGS_KEY = "msx88-trace:lint";
 
-export function loadLintSettings(storage: Pick<Storage, "getItem"> | null = safeStorage()): LintSettings {
+export function loadLintSettings(storage: Pick<Storage, "getItem"> | null = safeStorage(), key = SETTINGS_KEY): LintSettings {
   try {
-    const raw: unknown = JSON.parse(storage?.getItem(SETTINGS_KEY) ?? "null");
+    const raw: unknown = JSON.parse(storage?.getItem(key) ?? "null");
     if (typeof raw !== "object" || raw === null) return { ...DEFAULT_LINT };
     const o = raw as Record<string, unknown>;
     return Object.fromEntries(CHECKS.map((c) => [c, typeof o[c] === "boolean" ? o[c] : DEFAULT_LINT[c]])) as LintSettings;
@@ -301,9 +301,9 @@ export function loadLintSettings(storage: Pick<Storage, "getItem"> | null = safe
   }
 }
 
-export function saveLintSettings(settings: LintSettings, storage: Pick<Storage, "setItem"> | null = safeStorage()): void {
+export function saveLintSettings(settings: LintSettings, storage: Pick<Storage, "setItem"> | null = safeStorage(), key = SETTINGS_KEY): void {
   try {
-    storage?.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    storage?.setItem(key, JSON.stringify(settings));
   } catch {
     /* the choice still applies for this visit */
   }
