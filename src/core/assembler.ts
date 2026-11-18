@@ -126,6 +126,7 @@ export function assemble(source: string): Program {
   // Pass 2: resolve operands and emit data into the memory image.
   const memory = new Uint8Array(0x10000);
   const uninit = new Uint8Array(0x10000);
+  const declared = new Uint8Array(0x10000);
   const instrs = new Map<number, Instr>();
   const codeBytes = new Uint8Array(0x10000);
   let entry: number | undefined;
@@ -141,6 +142,7 @@ export function assemble(source: string): Program {
         const a = it.addr + k * (width / 8);
         memory[a] = v & 0xff;
         if (width === 16) memory[a + 1] = (v >> 8) & 0xff;
+        for (let b = 0; b < width / 8; b++) declared[a + b] = 1;
         if (blank) for (let b = 0; b < width / 8; b++) uninit[a + b] = 1;
       });
       continue;
@@ -159,5 +161,5 @@ export function assemble(source: string): Program {
   }
 
   // MSX88 always boots at 2000H; fall back to the first instruction when nothing lives there.
-  return { instrs, memory, symbols, uninit, entry: instrs.has(MSX88_ENTRY) ? MSX88_ENTRY : (entry ?? 0) };
+  return { instrs, memory, symbols, uninit, declared, entry: instrs.has(MSX88_ENTRY) ? MSX88_ENTRY : (entry ?? 0) };
 }

@@ -38,6 +38,8 @@ export interface Program {
   symbols: Map<string, Sym>;
   /** 1 for each byte declared with `?` (DB ? / DW ? / DUP(?)): space reserved but given no value. */
   uninit: Uint8Array;
+  /** 1 for each byte reserved by DB/DW, whether or not it was given a value. */
+  declared: Uint8Array;
   /** Address of the first instruction in source order. */
   entry: number;
 }

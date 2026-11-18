@@ -3,7 +3,7 @@ import { tokenizeMips } from "../src/mips/highlight";
 import { mipsExamplesFor } from "../src/mips/examples";
 import { buildPipeline } from "../src/mips/pipeline";
 import { simulateMips } from "../src/mips/sim";
-import { fmtValue, memoryRows, pipelineUpTo, pipelineWindow, registerTable, stepFacts } from "../src/mips/view";
+import { fmtValue, memoryRows, pipelineUpTo, pipelineWindow, memoryMap, registerTable, stepFacts, variableTable } from "../src/mips/view";
 
 const sim = (src: string) => simulateMips(src);
 
@@ -44,6 +44,52 @@ describe("EduMIPS64 table models", () => {
       [2, "write", 0, 8, 3n],
       [3, "read", 0, 8, 3n],
     ]);
+  });
+
+  it("traces each memory location: address, name, initial value and every value stored to it, in order", () => {
+    const r = sim(
+      ".data\nn: .word 5\narr: .word 1, 2\nb: .byte 7\n.text\ndaddi r1, r0, 9\nsd r1, arr(r0)\ndaddi r1, r1, 1\nsd r1, arr(r0)\nsd r1, arr+8(r0)\nld r2, n(r0)\nsb r1, b(r0)\nhalt",
+    );
+    const t = variableTable(r.program, r.steps);
+    expect(t.cols.map((c) => [c.addr, c.name, c.size, c.initial])).toEqual([
+      [0, "n", 8, 5n],
+      [8, "arr", 8, 1n],
+      [16, "arr+8", 8, 2n],
+      [24, "b", 1, 7n],
+    ]);
+    expect(t.cols[0].writes).toEqual([]);
+    expect(t.cols[1].writes.map((w) => [w.step, w.value])).toEqual([[2, 9n], [4, 10n]]);
+    expect(t.cols[2].writes.map((w) => w.step)).toEqual([5]);
+    expect(t.cols[3].writes.map((w) => [w.step, w.value])).toEqual([[7, 10n]]);
+  });
+
+  it("covers only the steps given, and reads signed values by access size", () => {
+    const r = sim(".data\nv: .byte 0\n.text\ndaddi r1, r0, -1\nsb r1, v(r0)\nhalt");
+    expect(variableTable(r.program, r.steps.slice(0, 1)).cols).toEqual([]);
+    expect(variableTable(r.program, r.steps).cols[0].writes[0].value).toBe(-1n);
+  });
+
+  it("maps data memory byte by byte: address, label, character, bits and what stores changed", () => {
+    const r = sim('.data\nmsg: .asciiz "Hi"\nfin: .byte 0\n.text\ndaddi r1, r0, 33\nsb r1, fin(r0)\nhalt');
+    const fin = r.program.symbols.get("fin")!.value;
+    const m = memoryMap(r.program, r.steps);
+    expect(m.rows.slice(0, 3).map((x) => [x.addr, x.label, x.char, x.bits])).toEqual([
+      [0, "msg", "H", "01001000"],
+      [1, undefined, "i", "01101001"],
+      [2, undefined, "", "00000000"],
+    ]);
+    const last = m.rows[fin];
+    expect([last.label, last.value, last.bits, last.char, last.changed, last.step]).toEqual(["fin", 33, "00100001", "!", true, 2]);
+    expect(m.rows).toHaveLength(fin + 1);
+    // before the store ran, the byte still holds its initial value
+    const before = memoryMap(r.program, r.steps.slice(0, 1)).rows[fin];
+    expect([before.value, before.changed, before.step]).toEqual([0, false, undefined]);
+  });
+
+  it("caps the rows drawn but reports how many bytes the map covers", () => {
+    const r = sim(".data\nbuf: .space 100\n.text\nhalt");
+    const m = memoryMap(r.program, r.steps, 16);
+    expect([m.rows.length, m.total]).toEqual([16, 100]);
   });
 
   it("formats a value as signed decimal and 16 hex digits", () => {

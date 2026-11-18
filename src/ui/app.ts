@@ -5,9 +5,10 @@ import { wireArchSelect } from "./arch";
 import { h } from "./dom";
 import type { Child } from "./dom";
 import { examplesFor } from "./examples";
-import { hex8, hex16 } from "./format";
-import { buildHistory, stackSlots } from "./history";
+import { bin8, hex8, hex16 } from "./format";
+import { buildHistory } from "./history";
 import { markRange, tokenize } from "./highlight";
+import { memoryMap, stackMap } from "./memmap";
 import { newlineEdit, tabEdit } from "./indent";
 import { createLineHighlight } from "./linehl";
 import { revealCurrent } from "./reveal";
@@ -26,7 +27,7 @@ import type { ShareState } from "./share";
 
 const LINE_IDS = [0, 1, 2] as const;
 
-type LedgerId = "registers" | "flags" | "heap" | "stack";
+type LedgerId = "registers" | "flags" | "heap" | "stack" | "bytes";
 
 export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
@@ -460,7 +461,7 @@ export function mountApp(root: HTMLElement): void {
   }
 
   // Each ledger can be hidden down to its header or enlarged to fill the whole trace area.
-  const LEDGER_ORDER: readonly LedgerId[] = ["registers", "flags", "heap", "stack"];
+  const LEDGER_ORDER: readonly LedgerId[] = ["registers", "flags", "heap", "stack", "bytes"];
   const collapsed = new Set<LedgerId>();
   let expanded: LedgerId | null = null;
   let wide = false;
@@ -511,11 +512,11 @@ export function mountApp(root: HTMLElement): void {
     // a track holding only hidden ledgers shrinks to its header; the rest share what is left
     const track = (keys: readonly LedgerId[], fr: number): string => (keys.every(isOff) ? "auto" : `minmax(0, ${fr}fr)`);
     if (wide) {
-      ledgersEl.style.setProperty("--cols", LEDGER_ORDER.map((k, i) => track([k], [1.3, 1, 1, 1][i])).join(" "));
+      ledgersEl.style.setProperty("--cols", LEDGER_ORDER.map((k, i) => track([k], [1.3, 1, 1, 1, 1.3][i])).join(" "));
       ledgersEl.style.setProperty("--rows", "minmax(0, 1fr)");
     } else {
       ledgersEl.style.setProperty("--cols", "minmax(0, 1fr) minmax(0, 1fr)");
-      ledgersEl.style.setProperty("--rows", [track(["registers"], 1.2), track(["flags", "heap"], 1), track(["stack"], 1)].join(" "));
+      ledgersEl.style.setProperty("--rows", [track(["registers"], 1.2), track(["flags", "heap"], 1), track(["stack"], 1), track(["bytes"], 1.2)].join(" "));
     }
   }
 
@@ -567,43 +568,87 @@ export function mountApp(root: HTMLElement): void {
     );
   }
 
-  /** One row per stack address, from the base down; to the right, every value pushed there in order. */
-  function stackTable(events: ReturnType<typeof buildHistory>["stack"]): HTMLElement {
-    if (events.length === 0) return h("p", { class: "none" }, t("none.stack"));
-    const slots = stackSlots(events);
-    const depth = Math.max(1, ...slots.map((sl) => sl.writes.length));
-    const head = h(
-      "tr",
-      {},
-      h("th", { scope: "col", class: "num" }, t("table.address")),
-      h("th", { scope: "colgroup", colspan: String(depth), class: "val" }, t("table.order")),
-    );
-    const rows = slots.map((sl, i) =>
+  /** Data memory byte by byte: address, label, character, hex and the 8 bits of each datum. */
+  function bytesTable(upTo: number): HTMLElement {
+    const m = memoryMap(result!.program, result!.steps.slice(0, upTo));
+    if (m.rows.length === 0) return h("p", { class: "none" }, t("none.bytes"));
+    const cell = (r: (typeof m.rows)[number], text: string): HTMLElement =>
+      h("td", { class: r.changed ? "val is-set" : "val", title: r.blank ? t("bytes.blank") : undefined }, r.blank ? "?" : text);
+    const table = h(
+      "table",
+      { class: "log" },
+      h("caption", { class: "visually-hidden" }, t("caption.bytes")),
       h(
-        "tr",
-        { class: i === 0 ? "log-row log-row--start" : "log-row" },
-        h("th", { scope: "row", class: "num" }, `${hex16(sl.addr)}H`, i === 0 ? h("span", { class: "slot-tag" }, t("slot.base")) : null),
-        ...sl.writes.map((w) => {
-          const live = w.poppedAt === undefined;
+        "thead",
+        {},
+        h(
+          "tr",
+          {},
+          h("th", { scope: "col", class: "num" }, t("table.address")),
+          h("th", { scope: "col" }, t("table.name")),
+          h("th", { scope: "col" }, t("table.char")),
+          h("th", { scope: "col", class: "val" }, t("table.hex")),
+          h("th", { scope: "col", class: "val" }, t("table.bits")),
+        ),
+      ),
+      h(
+        "tbody",
+        {},
+        ...m.rows.map((r) =>
+          h(
+            "tr",
+            { class: "log-row", "data-step": r.step === undefined ? undefined : String(r.step) },
+            h("th", { scope: "row", class: "num", title: String(r.addr) }, `${hex16(r.addr)}H`),
+            h("td", { class: "var-name" }, r.label ?? ""),
+            h("td", {}, r.char),
+            cell(r, `${hex8(r.value)}H`),
+            cell(r, bin8(r.value)),
+          ),
+        ),
+      ),
+    );
+    const more = m.total > m.rows.length ? h("p", { class: "help" }, t("bytes.more", { shown: m.rows.length, total: m.total })) : null;
+    return h("div", {}, table, more);
+  }
+
+  /** The stack byte by byte, from its base down: address, mark (base / SP), character, hex and bits. Popped bytes are dimmed. */
+  function stackTable(upTo: number): HTMLElement {
+    const m = stackMap(result!.steps.slice(0, upTo));
+    if (m.rows.length === 0) return h("p", { class: "none" }, t("none.stack"));
+    return h(
+      "table",
+      { class: "log" },
+      h("caption", { class: "visually-hidden" }, t("caption.stack")),
+      h(
+        "thead",
+        {},
+        h(
+          "tr",
+          {},
+          h("th", { scope: "col", class: "num" }, t("table.address")),
+          h("th", { scope: "col" }, t("table.mark")),
+          h("th", { scope: "col" }, t("table.char")),
+          h("th", { scope: "col", class: "val" }, t("table.hex")),
+          h("th", { scope: "col", class: "val" }, t("table.bits")),
+        ),
+      ),
+      h(
+        "tbody",
+        {},
+        ...m.rows.map((r) => {
+          const cls = r.base ? "val" : r.live ? "val is-set" : "val is-set is-stale";
+          const mark = [r.base ? t("slot.base") : "", r.sp ? "SP →" : ""].filter(Boolean).join(" ");
           return h(
-            "td",
-            {
-              class: live ? "val is-set" : "val is-set is-stale",
-              "data-step": String(w.step),
-              title: `${describeStep(w.step)}${live ? "" : t("cell.popped", { n: w.poppedAt ?? "" })}`,
-            },
-            hex16(w.value),
-            h("span", { class: "cell-step" }, `s${w.step}`),
+            "tr",
+            { class: r.base ? "log-row log-row--start" : "log-row", "data-step": r.step === undefined ? undefined : String(r.step) },
+            h("th", { scope: "row", class: "num", title: String(r.addr) }, `${hex16(r.addr)}H`),
+            h("td", { class: "var-name" }, mark),
+            h("td", {}, r.char),
+            h("td", { class: cls }, r.base ? "" : `${hex8(r.value)}H`),
+            h("td", { class: cls }, r.bits),
           );
         }),
       ),
-    );
-    return h(
-      "table",
-      { class: "log log--stack" },
-      h("caption", { class: "visually-hidden" }, t("caption.stack")),
-      h("thead", {}, head),
-      h("tbody", {}, ...rows),
     );
   }
 
@@ -653,7 +698,8 @@ export function mountApp(root: HTMLElement): void {
       registers: valueTable(t("caption.registers"), t("table.step"), hist.registers.map((r) => ({ name: r.name, series: r })), (_, v) => hex16(v)),
       flags: valueTable(t("caption.flags"), t("table.step"), hist.flags.map((f) => ({ name: f.name, series: f })), (_, v) => String(v)),
       heap: hist.heap.length > 0 ? heapTable(hist.heap) : h("p", { class: "none" }, t("none.heap")),
-      stack: stackTable(hist.stack),
+      stack: stackTable(upTo),
+      bytes: bytesTable(upTo),
     };
     for (const el of ledgersEl.querySelectorAll<HTMLElement>(".ledger")) {
       const body = el.querySelector<HTMLElement>(".ledger-body")!;
@@ -785,6 +831,7 @@ export function mountApp(root: HTMLElement): void {
       ledger("flags", "hint.values"),
       ledger("heap", "hint.heap"),
       ledger("stack", "hint.stack"),
+      ledger("bytes", "hint.bytes"),
     );
     applyLedgerState();
 
