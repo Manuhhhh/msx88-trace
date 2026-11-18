@@ -9,7 +9,7 @@ Objective: add a second mode to msx88-trace that traces EduMIPS64 (MIPS64) synta
 - S5. ASSUMPTION (documented in code with `// ASSUMPTION:`): classic 5-stage in-order pipeline; stalls labelled RAW / WAW / structural as EduMIPS64 does; forwarding toggleable; branches resolved in ID. Exact EduMIPS64 timing to be checked against its manual (edumips64.readthedocs.io).
 
 ## Tasks
-- T1 (S4) MIPS64 lexer/parser/assembler to a program image — inline — pending
+- T1 (S4) MIPS64 lexer/parser/assembler to a program image — inline — done, 21 tests + strict tsc OK, commit f47a7c5. Tests written after the code (no RED observed).
 - T2 (S4) functional CPU + per-instruction trace — inline — pending
 - T3 (S2, S5) pipeline timing model over the executed stream (cycle diagram, stalls, forwarding flag) — inline — pending
 - T4 (S3) mode selector + MIPS tables and cycle diagram in the UI, MSX88 untouched — inline — pending
