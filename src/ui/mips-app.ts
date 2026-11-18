@@ -42,6 +42,7 @@ export function mountMipsApp(root: HTMLElement): void {
             <span class="label" data-i18n="example.label"></span>
             <select id="example" class="control"></select>
           </label>
+          <a id="manual-open" class="key" href="./manual.html?arch=mips" target="_blank" rel="noopener" data-i18n="manual.open"></a>
           <button type="button" id="run" class="key key--primary" data-i18n="run"></button>
         </div>
       </header>

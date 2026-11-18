@@ -1,16 +1,21 @@
 import { LANGS, getLang, setLang, t } from "./i18n";
 import type { Lang } from "./i18n";
+import { getArch, archUrl } from "./arch";
 import { manualDoc } from "./manual";
+import { mipsManualDoc } from "./mips-manual";
 
-/** The instruction manual as its own page: a table of contents on the side and the reference beside it. */
+/** The instruction manual as its own page: a table of contents on the side and the reference beside it. `?arch=mips` shows the EduMIPS64 one. */
 export function mountManual(root: HTMLElement): void {
+  const arch = getArch();
+  const mips = arch === "mips";
+  const home = archUrl(arch, "./");
   root.innerHTML = `
     <div class="docs-shell">
       <header class="topbar">
-        <a class="wordmark" href="./">MSX88 Trace</a>
+        <a class="wordmark" href="${home}">${mips ? "EduMIPS64 Trace" : "MSX88 Trace"}</a>
         <div class="topbar-actions flex items-center gap-(--space-sm)">
           <select id="lang" class="control lang-select" aria-label="Idioma / Language"></select>
-          <a class="key" href="./" id="back"></a>
+          <a class="key" href="${home}" id="back"></a>
         </div>
       </header>
       <div class="docs-layout">
@@ -35,12 +40,13 @@ export function mountManual(root: HTMLElement): void {
 
   function paint(): void {
     const lang = getLang();
-    const doc = manualDoc(lang);
+    const doc = mips ? mipsManualDoc(lang) : manualDoc(lang);
+    const title = t(mips ? "manual.title.mips" : "manual.title");
     document.documentElement.lang = lang;
-    document.title = t("manual.title");
+    document.title = title;
     langEl.value = lang;
     q("back").textContent = t("manual.back");
-    q("title").textContent = t("manual.title");
+    q("title").textContent = title;
     q("nav").setAttribute("aria-label", t("manual.contents"));
     q("nav").innerHTML = doc.nav;
     q("body").innerHTML = doc.body;
