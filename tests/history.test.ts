@@ -69,3 +69,21 @@ describe("stack by address", () => {
     expect(stackSlots(run("ORG 2000H\nINT 0\nEND").stack)).toEqual([{ addr: 0x8000, writes: [] }]);
   });
 });
+
+describe("history of a prefix of the run (step by step)", () => {
+  const steps = simulate("ORG 2000H\nMOV AX, 1\nPUSH AX\nPOP BX\nINT 0\nEND").steps;
+
+  it("only knows what happened up to the cut", () => {
+    const h = buildHistory(steps.slice(0, 2));
+    expect(h.registers.find((r) => r.name === "AX")!.points.map((p) => p.step)).toEqual([1]);
+    expect(h.registers.find((r) => r.name === "BX")!.points).toEqual([]);
+    expect(h.stack.map((e) => e.op)).toEqual(["push"]);
+  });
+
+  it("is empty before the first instruction and matches the full run at the end", () => {
+    const none = buildHistory([]);
+    expect(none.stack).toEqual([]);
+    expect(none.registers.every((r) => r.points.length === 0)).toBe(true);
+    expect(buildHistory(steps.slice(0, steps.length))).toEqual(buildHistory(steps));
+  });
+});

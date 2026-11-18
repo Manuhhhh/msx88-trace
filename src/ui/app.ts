@@ -62,7 +62,7 @@ export function mountApp(root: HTMLElement): void {
           <div class="editor graphite cut">
             <div class="gutter" aria-hidden="true"><pre id="gutter" class="gutter-lines">1</pre></div>
             <div class="editor-scroll">
-              <div id="line-hl" class="line-hl" hidden></div>
+              <div id="line-hl" class="line-hl is-off"></div>
               <pre class="hl" aria-hidden="true"><code id="hl-code"></code></pre>
               <textarea id="source" class="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
                 aria-label="MSX88 assembly source" aria-describedby="source-help"
@@ -95,6 +95,20 @@ export function mountApp(root: HTMLElement): void {
           <div class="pane-head flex flex-wrap items-baseline gap-x-(--space-md) gap-y-(--space-3xs)">
             <h2 id="h-trace" class="pane-title">Trace</h2>
             <p id="summary" class="summary" role="status"></p>
+          </div>
+          <div id="modebar" class="modebar" hidden>
+            <div class="seg" role="group" aria-label="Trace view">
+              <button type="button" id="mode-all" class="key key--quiet seg-btn" aria-pressed="true">All steps</button>
+              <button type="button" id="mode-step" class="key key--quiet seg-btn" aria-pressed="false">Step by step</button>
+            </div>
+            <div id="stepper" class="stepper" hidden>
+              <button type="button" id="st-reset" class="key key--sm">Reset</button>
+              <button type="button" id="st-prev" class="key key--sm">Previous</button>
+              <button type="button" id="st-next" class="key key--sm key--primary">Next</button>
+              <button type="button" id="st-play" class="key key--sm">Play</button>
+              <output id="st-count" class="label stepper-count" for="st-range">0 / 0</output>
+              <input id="st-range" class="stepper-range" type="range" min="0" max="0" value="0" aria-label="Step" />
+            </div>
           </div>
           <p id="hover" class="hover-line" aria-hidden="true"></p>
           <div id="region" class="region"></div>
@@ -146,6 +160,10 @@ export function mountApp(root: HTMLElement): void {
           </ul>
         </section>
         <section>
+          <h3>Step by step</h3>
+          <p>Switch <strong>All steps</strong> to <strong>Step by step</strong> to run the program one instruction at a time. The tables fill in as you go, the step that just ran stays lit in each of them, and its line stays highlighted in the source. Use <strong>Next</strong> and <strong>Previous</strong> (or the <kbd>→</kbd> and <kbd>←</kbd> keys), drag the slider to jump to any step, or press <strong>Play</strong> to let it run on its own.</p>
+        </section>
+        <section>
           <h3>Making room</h3>
           <p><strong>Full-width source</strong> gives the editor the whole width and moves the trace below it. Each table has <strong>Expand</strong> to fill the trace area and <strong>Hide</strong> to fold it down to its title. Wide tables scroll sideways.</p>
         </section>
@@ -168,6 +186,16 @@ export function mountApp(root: HTMLElement): void {
   const gutterEl = q<HTMLPreElement>("gutter");
   const layoutBtn = q<HTMLButtonElement>("layout");
   const helpEl = q<HTMLDialogElement>("help");
+  const modebarEl = q<HTMLDivElement>("modebar");
+  const stepperEl = q<HTMLDivElement>("stepper");
+  const modeAllBtn = q<HTMLButtonElement>("mode-all");
+  const modeStepBtn = q<HTMLButtonElement>("mode-step");
+  const stResetBtn = q<HTMLButtonElement>("st-reset");
+  const stPrevBtn = q<HTMLButtonElement>("st-prev");
+  const stNextBtn = q<HTMLButtonElement>("st-next");
+  const stPlayBtn = q<HTMLButtonElement>("st-play");
+  const stRange = q<HTMLInputElement>("st-range");
+  const stCount = q<HTMLOutputElement>("st-count");
   const shellEl = root.querySelector<HTMLElement>(".shell")!;
   const lineHlEl = q<HTMLDivElement>("line-hl");
   const hlCodeEl = q<HTMLElement>("hl-code");
@@ -205,29 +233,38 @@ export function mountApp(root: HTMLElement): void {
       gutterEl.parentElement!.style.setProperty("--digits", String(String(n).length));
     }
     gutterEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
-    if (highlighted > 0) placeHighlight(highlighted, false);
+    lineHlEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
   }
 
-  let highlighted = 0;
+  /**
+   * The band is positioned in the text's own coordinates and shifted by the scroll, so scrolling never
+   * fights the glide: only `top` is animated (see .line-hl), and it slides from line to line.
+   */
   function placeHighlight(line: number, reveal: boolean): void {
     const cs = getComputedStyle(sourceEl);
     const lh = parseFloat(cs.lineHeight) || 1.6 * parseFloat(cs.fontSize);
     const top = parseFloat(cs.paddingTop) + (line - 1) * lh;
     if (reveal && (top < sourceEl.scrollTop || top + lh > sourceEl.scrollTop + sourceEl.clientHeight)) {
       sourceEl.scrollTop = Math.max(0, top - sourceEl.clientHeight / 2);
-      gutterEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
     }
-    lineHlEl.style.top = `${top - sourceEl.scrollTop}px`;
+    // the very first placement appears in place; every later one glides from where the band was
+    const first = lineHlEl.style.top === "";
+    if (first) lineHlEl.style.transition = "none";
+    lineHlEl.style.top = `${top}px`;
     lineHlEl.style.height = `${lh}px`;
-    lineHlEl.hidden = false;
-    highlighted = line;
+    lineHlEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
+    if (first) {
+      void lineHlEl.offsetHeight;
+      lineHlEl.style.transition = "";
+    }
+    lineHlEl.classList.remove("is-off");
   }
   function highlightLine(line: number): void {
     if (line > 0) {
       placeHighlight(line, true);
     } else {
-      lineHlEl.hidden = true;
-      highlighted = 0;
+      // fade out where it is, so the next line it lights glides in from here
+      lineHlEl.classList.add("is-off");
     }
   }
   sourceEl.addEventListener("scroll", syncGutter);
@@ -309,6 +346,7 @@ export function mountApp(root: HTMLElement): void {
 
   function renderEmpty(): void {
     result = null;
+    leaveStepping();
     setSummary();
     hoverEl.textContent = "";
     ledgersEl.replaceChildren();
@@ -327,6 +365,7 @@ export function mountApp(root: HTMLElement): void {
 
   function renderAsmError(err: AsmError): void {
     result = null;
+    leaveStepping();
     setSummary();
     hoverEl.textContent = "";
     ledgersEl.replaceChildren();
@@ -539,16 +578,36 @@ export function mountApp(root: HTMLElement): void {
     );
   }
 
+  // ---- hover and step-by-step ---------------------------------------------------
+
+  type Mode = "all" | "step";
+  let mode: Mode = "all";
+  let pos = 0; // in step mode: how many instructions have run so far
   let hovered = 0;
+  let playTimer: number | undefined;
+
+  const total = (): number => result?.steps.length ?? 0;
+
+  /** The source line of a step; an interrupt has none of its own, so it shows the instruction it cut in on. */
+  function lineOf(n: number): number {
+    const step = n > 0 ? result?.steps[n - 1] : undefined;
+    return step ? step.line || (result?.program.instrs.get(step.ip)?.line ?? 0) : 0;
+  }
+
+  /** What the readout and the source highlight show while nothing is hovered. */
+  function restText(): string {
+    if (mode === "all") return HOVER_HINT;
+    return pos === 0 ? "Ready. Press Next to run the first instruction." : describeStep(pos);
+  }
+  const restLine = (): number => (mode === "step" ? lineOf(pos) : 0);
+
   function setHover(n: number): void {
     if (n === hovered) return;
     hovered = n;
     for (const r of ledgersEl.querySelectorAll(".is-hover")) r.classList.remove("is-hover");
     if (n > 0) for (const r of ledgersEl.querySelectorAll(`[data-step="${n}"]`)) r.classList.add("is-hover");
-    hoverEl.textContent = n > 0 ? describeStep(n) : HOVER_HINT;
-    const step = n > 0 ? result?.steps[n - 1] : undefined;
-    // an interrupt has no line of its own: show the instruction it cut in on
-    highlightLine(step ? step.line || (result?.program.instrs.get(step.ip)?.line ?? 0) : 0);
+    hoverEl.textContent = n > 0 ? describeStep(n) : restText();
+    highlightLine(n > 0 ? lineOf(n) : restLine());
   }
   ledgersEl.addEventListener("mouseover", (e) => {
     const el = (e.target as HTMLElement).closest<HTMLElement>("[data-step]");
@@ -556,11 +615,146 @@ export function mountApp(root: HTMLElement): void {
   });
   ledgersEl.addEventListener("mouseleave", () => setHover(0));
 
+  /** Fills the four tables with what happened up to the current position (everything, outside step mode). `animate` lets what this step added slide in. */
+  function paintTables(animate = false): void {
+    if (!result) return;
+    const upTo = mode === "step" ? pos : result.steps.length;
+    const hist = buildHistory(result.steps.slice(0, upTo));
+    const bodies: Record<string, HTMLElement> = {
+      Registers: valueTable("Register values by step, hexadecimal", "Step", hist.registers.map((r) => ({ name: r.name, series: r })), (_, v) => hex16(v)),
+      Flags: valueTable("Flag values by step", "Step", hist.flags.map((f) => ({ name: f.name, series: f })), (_, v) => String(v)),
+      Heap: hist.heap.length > 0 ? heapTable(hist.heap) : h("p", { class: "none" }, "Nothing was written to data memory."),
+      Stack: stackTable(hist.stack),
+    };
+    for (const el of ledgersEl.querySelectorAll<HTMLElement>(".ledger")) {
+      const body = el.querySelector<HTMLElement>(".ledger-body")!;
+      const { scrollTop, scrollLeft } = body;
+      body.replaceChildren(bodies[el.dataset.ledger!]);
+      body.scrollTop = scrollTop;
+      body.scrollLeft = scrollLeft;
+    }
+    hovered = 0;
+    if (mode === "step" && pos > 0) {
+      for (const r of ledgersEl.querySelectorAll(`[data-step="${pos}"]`)) {
+        r.classList.add("is-current");
+        if (animate) r.classList.add("is-new");
+      }
+      for (const body of ledgersEl.querySelectorAll<HTMLElement>(".ledger-body")) revealCurrent(body);
+    }
+  }
+
+  /** Scrolls a ledger just enough to bring the current step's row or cell into view, clear of the sticky headers. */
+  function revealCurrent(body: HTMLElement): void {
+    const cur = body.querySelectorAll<HTMLElement>(".is-current");
+    if (cur.length === 0) return;
+    const box = body.getBoundingClientRect();
+    const headH = body.querySelector("thead")?.getBoundingClientRect().height ?? 0;
+    const sideW = body.querySelector<HTMLElement>("tbody th")?.getBoundingClientRect().width ?? 0;
+    for (const el of [cur[0], cur[cur.length - 1]]) {
+      const r = el.getBoundingClientRect();
+      if (r.top < box.top + headH) body.scrollTop += r.top - box.top - headH;
+      else if (r.bottom > box.bottom) body.scrollTop += r.bottom - box.bottom;
+      if (r.left < box.left + sideW) body.scrollLeft += r.left - box.left - sideW;
+      else if (r.right > box.right) body.scrollLeft += r.right - box.right;
+    }
+  }
+
+  function updateStepper(): void {
+    const n = total();
+    stRange.max = String(n);
+    stRange.value = String(pos);
+    stCount.textContent = `${pos} / ${n}`;
+    stResetBtn.disabled = stPrevBtn.disabled = pos === 0;
+    stNextBtn.disabled = pos >= n;
+    stPlayBtn.disabled = n === 0;
+    stPlayBtn.textContent = playTimer === undefined ? "Play" : "Pause";
+  }
+
+  function stopPlay(): void {
+    if (playTimer !== undefined) window.clearInterval(playTimer);
+    playTimer = undefined;
+  }
+
+  function goTo(n: number): void {
+    const before = pos;
+    pos = Math.min(total(), Math.max(0, n));
+    paintTables(mode === "step" && pos > before);
+    hoverEl.textContent = restText();
+    highlightLine(restLine());
+    updateStepper();
+  }
+
+  function setMode(next: Mode): void {
+    stopPlay();
+    mode = next;
+    pos = 0;
+    modeAllBtn.setAttribute("aria-pressed", String(next === "all"));
+    modeStepBtn.setAttribute("aria-pressed", String(next === "step"));
+    stepperEl.hidden = next !== "step";
+    goTo(0);
+  }
+
+  /** No trace to step through: stop any playback and tuck the controls away. */
+  function leaveStepping(): void {
+    stopPlay();
+    pos = 0;
+    modebarEl.hidden = true;
+    highlightLine(0);
+  }
+
+  function togglePlay(): void {
+    if (playTimer !== undefined) {
+      stopPlay();
+      updateStepper();
+      return;
+    }
+    if (pos >= total()) goTo(0);
+    playTimer = window.setInterval(() => {
+      goTo(pos + 1);
+      if (pos >= total()) {
+        stopPlay();
+        updateStepper();
+      }
+    }, 600);
+    updateStepper();
+  }
+
+  modeAllBtn.addEventListener("click", () => setMode("all"));
+  modeStepBtn.addEventListener("click", () => setMode("step"));
+  stResetBtn.addEventListener("click", () => {
+    stopPlay();
+    goTo(0);
+  });
+  stPrevBtn.addEventListener("click", () => {
+    stopPlay();
+    goTo(pos - 1);
+  });
+  stNextBtn.addEventListener("click", () => {
+    stopPlay();
+    goTo(pos + 1);
+  });
+  stPlayBtn.addEventListener("click", togglePlay);
+  stRange.addEventListener("input", () => {
+    stopPlay();
+    goTo(Number(stRange.value));
+  });
+  // arrow keys step through the run, unless the keys belong to a field or the dialog is open
+  document.addEventListener("keydown", (e) => {
+    if (mode !== "step" || helpEl.open || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const t = e.target as HTMLElement;
+    if (t.closest("input, textarea, select, [contenteditable]")) return;
+    e.preventDefault();
+    stopPlay();
+    goTo(pos + (e.key === "ArrowRight" ? 1 : -1));
+  });
+
   function renderTrace(res: SimResult): void {
     result = res;
     hovered = 0;
-    highlightLine(0);
-    const hist = buildHistory(res.steps);
+    stopPlay();
+    pos = 0;
+    modebarEl.hidden = false;
 
     const children: Child[] = [];
     if (res.reason !== "halted") {
@@ -573,18 +767,14 @@ export function mountApp(root: HTMLElement): void {
     }
     regionEl.replaceChildren(...children.filter((c): c is Node => c !== null && c !== undefined && c !== false));
 
-    const regs = valueTable("Register values by step, hexadecimal", "Step", hist.registers.map((r) => ({ name: r.name, series: r })), (_, v) => hex16(v));
-    const flags = valueTable("Flag values by step", "Step", hist.flags.map((f) => ({ name: f.name, series: f })), (_, v) => String(v));
-    const heap = hist.heap.length > 0 ? heapTable(hist.heap) : h("p", { class: "none" }, "Nothing was written to data memory.");
-
     ledgersEl.replaceChildren(
-      ledger("Registers", "each value placed", regs),
-      ledger("Flags", "each value placed", flags),
-      ledger("Heap", "data memory writes", heap),
-      ledger("Stack", "pushes and pops", stackTable(hist.stack)),
+      ledger("Registers", "each value placed", null),
+      ledger("Flags", "each value placed", null),
+      ledger("Heap", "data memory writes", null),
+      ledger("Stack", "pushes and pops", null),
     );
     applyLedgerState();
-    hoverEl.textContent = HOVER_HINT;
+    goTo(0);
 
     const irqs = res.steps.filter((s) => s.kind === "irq").length;
     setSummary(
