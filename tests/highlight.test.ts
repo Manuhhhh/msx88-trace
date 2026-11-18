@@ -54,13 +54,13 @@ describe("markRange", () => {
     const src = "        MOV AX, 1 ; note";
     const out = markRange(tokenize(src), 12, 14);
     expect(out.map((t) => t.text).join("")).toBe(src);
-    expect(out.filter((t) => t.error).map((t) => t.text)).toEqual(["AX"]);
+    expect(out.filter((t) => t.mark).map((t) => t.text)).toEqual(["AX"]);
   });
 
   it("splits a token at the edges and keeps its colour", () => {
     const out = markRange(tokenize("MOV AX"), 1, 5);
-    expect(out.filter((t) => t.error).map((t) => t.text).join("")).toBe("OV A");
-    expect(out.filter((t) => t.error).map((t) => t.kind)).toEqual(["ins", undefined, "reg"]);
+    expect(out.filter((t) => t.mark).map((t) => t.text).join("")).toBe("OV A");
+    expect(out.filter((t) => t.mark).map((t) => t.kind)).toEqual(["ins", undefined, "reg"]);
   });
 
   it("returns the tokens untouched for an empty range", () => {

@@ -7,8 +7,8 @@ export interface Token {
   text: string;
   /** Absent for text that stays plain: symbols, punctuation, whitespace. */
   kind?: TokenKind;
-  /** Set on the text a syntax error points at. */
-  error?: boolean;
+  /** Set on the text the linter points at: an error (syntax) or a warning. */
+  mark?: "error" | "warning";
 }
 
 const TOKEN = /(;[^\n]*)|('[^'\n]*'?|"[^"\n]*"?)|([A-Za-z_@?$][\w@?$]*)(:)?|(\d[0-9A-Fa-f]*[HhBbDd]?(?!\w))/g;
@@ -41,8 +41,8 @@ export function tokenize(source: string): Token[] {
   return out;
 }
 
-/** Flags the text in [from, to) as the error, splitting tokens at the edges so the text still joins back unchanged. */
-export function markRange(tokens: Token[], from: number, to: number): Token[] {
+/** Flags the text in [from, to) as an error or a warning, splitting tokens at the edges so the text still joins back unchanged. */
+export function markRange(tokens: Token[], from: number, to: number, mark: "error" | "warning" = "error"): Token[] {
   if (to <= from) return tokens;
   const out: Token[] = [];
   let at = 0;
@@ -55,11 +55,11 @@ export function markRange(tokens: Token[], from: number, to: number): Token[] {
     }
     const a = Math.max(from, start) - start;
     const b = Math.min(to, at) - start;
-    const piece = (text: string, error?: boolean): void => {
-      if (text) out.push({ ...tok, text, error });
+    const piece = (text: string, flag?: "error" | "warning"): void => {
+      if (text) out.push(flag ? { ...tok, text, mark: flag } : { ...tok, text });
     };
     piece(tok.text.slice(0, a));
-    piece(tok.text.slice(a, b), true);
+    piece(tok.text.slice(a, b), mark);
     piece(tok.text.slice(b));
   }
   return out;

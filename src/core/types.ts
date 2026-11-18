@@ -36,6 +36,8 @@ export interface Program {
   /** Initial memory image (data from DB/DW). */
   memory: Uint8Array;
   symbols: Map<string, Sym>;
+  /** 1 for each byte declared with `?` (DB ? / DW ? / DUP(?)): space reserved but given no value. */
+  uninit: Uint8Array;
   /** Address of the first instruction in source order. */
   entry: number;
 }

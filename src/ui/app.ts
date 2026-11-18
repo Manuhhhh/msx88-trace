@@ -10,8 +10,8 @@ import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
 import { complete } from "./complete";
-import { diagnose } from "./lint";
-import type { Diagnostic } from "./lint";
+import { CHECKS, lint, loadLintSettings, saveLintSettings } from "./lint";
+import type { Check, Diagnostic } from "./lint";
 import type { Completion } from "./complete";
 import { cleanName, deleteScript, listScripts, saveScript } from "./scripts";
 import { decodeState, encodeState } from "./share";
@@ -77,7 +77,11 @@ export function mountApp(root: HTMLElement): void {
                 placeholder="ORG 2000H&#10;MOV AX, 5&#10;INT 0&#10;END"></textarea>
             </div>
           </div>
-          <p id="lint" class="lint" role="status" hidden></p>
+          <ul id="lint" class="lint-list" role="status" hidden></ul>
+          <details id="lint-opts" class="lint-opts">
+            <summary class="label-title" data-i18n="lint.options"></summary>
+            <div id="lint-checks" class="lint-checks"></div>
+          </details>
           <p id="source-help" class="help" data-i18n="source.help"></p>
           <details id="settings" class="settings">
             <summary id="settings-label" class="label-title"></summary>
@@ -173,7 +177,8 @@ export function mountApp(root: HTMLElement): void {
   const stCount = q<HTMLOutputElement>("st-count");
   const shellEl = root.querySelector<HTMLElement>(".shell")!;
   const lineHlEl = q<HTMLDivElement>("line-hl");
-  const lintEl = q<HTMLParagraphElement>("lint");
+  const lintEl = q<HTMLUListElement>("lint");
+  const lintChecksEl = q<HTMLDivElement>("lint-checks");
   const lintTipEl = q<HTMLDivElement>("lint-tip");
   const hlCodeEl = q<HTMLElement>("hl-code");
   const settingsLabel = q<HTMLElement>("settings-label");
@@ -199,17 +204,17 @@ export function mountApp(root: HTMLElement): void {
   let gutterCount = 0;
   let painted: string | null = null;
   // declared here, filled by the live syntax check below
-  let diagnostic: Diagnostic | null = null;
+  let findings: Diagnostic[] = [];
   /** Draws the coloured copy of the source that sits under the transparent textarea. */
   function paintSource(): void {
     const text = sourceEl.value;
-    const key = `${diagnostic ? `${diagnostic.from}:${diagnostic.to}` : ""}|${text}`;
+    const key = `${findings.map((f) => `${f.severity}:${f.from}:${f.to}`).join(",")}|${text}`;
     if (key === painted) return;
     painted = key;
     const frag = document.createDocumentFragment();
-    const tokens = diagnostic ? markRange(tokenize(text), diagnostic.from, diagnostic.to) : tokenize(text);
+    const tokens = findings.reduce((acc, f) => markRange(acc, f.from, f.to, f.severity), tokenize(text));
     for (const t of tokens) {
-      const cls = [t.kind ? `tk tk-${t.kind}` : "", t.error ? "tk-err" : ""].filter(Boolean).join(" ");
+      const cls = [t.kind ? `tk tk-${t.kind}` : "", t.mark ? (t.mark === "error" ? "tk-err" : "tk-warn") : ""].filter(Boolean).join(" ");
       frag.append(cls ? h("span", { class: cls }, t.text) : t.text);
     }
     // a final newline would collapse in the <pre>; the textarea still shows its empty last line
@@ -302,29 +307,56 @@ export function mountApp(root: HTMLElement): void {
     saveNoteEl.hidden = !listScripts().some((sc) => sc.name === name);
   }
 
-  // ---- live syntax check ---------------------------------------------------------
+  // ---- live linter ---------------------------------------------------------------
 
   let lintTimer: number | undefined;
+  let lintSettings = loadLintSettings();
 
-  /** Marks the text that would not assemble and says why, without running anything. */
+  const describeFinding = (f: Diagnostic): string => (f.key ? t(f.key, f.vars) : translateCore(f.message ?? ""));
+
+  /** Marks the text the linter points at and lists what it found, without running anything for real. */
   function paintDiagnostic(): void {
     hideLintTip();
     paintSource();
-    if (!diagnostic) {
-      lintEl.hidden = true;
-      lintEl.textContent = "";
-      sourceEl.removeAttribute("aria-invalid");
-      return;
-    }
-    lintEl.textContent = translateCore(diagnostic.message);
-    lintEl.hidden = false;
-    sourceEl.setAttribute("aria-invalid", "true");
+    lintEl.replaceChildren(
+      ...findings.map((f) => {
+        const text = f.line > 0 && f.key ? t("lint.at", { n: f.line, msg: describeFinding(f) }) : describeFinding(f);
+        const item = h("li", { class: "lint-item", "data-severity": f.severity }, text);
+        if (f.to > f.from) {
+          // a click takes you to the text it is about
+          item.addEventListener("click", () => {
+            sourceEl.focus();
+            sourceEl.setSelectionRange(f.from, f.to);
+          });
+        }
+        return item;
+      }),
+    );
+    lintEl.hidden = findings.length === 0;
+    if (findings.some((f) => f.severity === "error")) sourceEl.setAttribute("aria-invalid", "true");
+    else sourceEl.removeAttribute("aria-invalid");
   }
 
   function lintNow(): void {
     window.clearTimeout(lintTimer);
-    diagnostic = diagnose(sourceEl.value);
+    const st = readState();
+    findings = lint(sourceEl.value, { input: st.input, maxSteps: st.maxSteps, events: st.events }, lintSettings);
     paintDiagnostic();
+  }
+
+  function buildLintChecks(): void {
+    lintChecksEl.replaceChildren(
+      ...CHECKS.map((c: Check) => {
+        const box = h("input", { type: "checkbox", name: `lint-${c}` });
+        box.checked = lintSettings[c];
+        box.addEventListener("change", () => {
+          lintSettings = { ...lintSettings, [c]: box.checked };
+          saveLintSettings(lintSettings);
+          lintNow();
+        });
+        return h("label", { class: "lint-check flex items-center gap-(--space-xs)" }, box, h("span", { class: "label" }, t(`lint.check.${c}` as Key)));
+      }),
+    );
   }
 
   /** Waits for a pause in typing, so a half-written line is not flagged while it is being written. */
@@ -359,15 +391,17 @@ export function mountApp(root: HTMLElement): void {
   }
 
   sourceEl.addEventListener("mousemove", (e) => {
-    if (!diagnostic || diagnostic.to <= diagnostic.from) return;
+    if (findings.length === 0) return;
     const at = offsetAtPoint(e.clientX, e.clientY);
-    if (at < diagnostic.from || at >= diagnostic.to) {
+    const f = findings.find((x) => x.to > x.from && at >= x.from && at < x.to);
+    if (!f) {
       hideLintTip();
       return;
     }
-    lintTipEl.textContent = translateCore(diagnostic.message);
+    lintTipEl.textContent = describeFinding(f);
+    lintTipEl.dataset.severity = f.severity;
     lintTipEl.hidden = false;
-    const { x, y } = wordPosition(diagnostic.from);
+    const { x, y } = wordPosition(f.from);
     const w = lintTipEl.offsetWidth;
     lintTipEl.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
     lintTipEl.style.top = `${y + 2}px`;
@@ -1201,6 +1235,7 @@ export function mountApp(root: HTMLElement): void {
     applyStaticText();
     buildExampleOptions();
     buildScriptOptions();
+    buildLintChecks();
     paintDiagnostic();
     const events = readState().events;
     eventsEl.replaceChildren();
@@ -1226,6 +1261,7 @@ export function mountApp(root: HTMLElement): void {
   applyStaticText();
   buildExampleOptions();
   buildScriptOptions();
+  buildLintChecks();
   const initial = decodeState(location.hash.slice(1));
   writeState(initial ?? { source: "", input: "", maxSteps: 2000, events: [] });
   if (initial) run();

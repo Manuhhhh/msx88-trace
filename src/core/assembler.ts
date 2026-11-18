@@ -11,6 +11,12 @@ interface Item {
   kind: "data" | "instr";
 }
 
+/** One byte (DB) or word (DW) of a data list; `uninit` marks a `?`, which reserves space without giving it a value. */
+interface Cell {
+  value: number;
+  uninit: boolean;
+}
+
 /**
  * Values of a DB/DW argument list, one entry per byte (DB) or word (DW).
  * Supports numbers, expressions, `?`, 'strings' and `n DUP(values)`.
@@ -21,17 +27,17 @@ function dataValues(
   symbols: Map<string, Sym>,
   strict: boolean,
   line: number,
-): number[] {
-  const out: number[] = [];
+): Cell[] {
+  const out: Cell[] = [];
   for (const a of args) {
     if (a === "?") {
-      out.push(0);
+      out.push({ value: 0, uninit: true });
       continue;
     }
     const str = /^(['"])(.*)\1$/.exec(a);
     if (str) {
       if (width === 16 && str[2].length > 1) throw new AsmError("DW cannot hold a string", line);
-      for (const ch of str[2]) out.push(ch.charCodeAt(0));
+      for (const ch of str[2]) out.push({ value: ch.charCodeAt(0), uninit: false });
       continue;
     }
     const dup = /^(.+?)\s+DUP\s*\((.*)\)\s*$/i.exec(a);
@@ -42,7 +48,7 @@ function dataValues(
       for (let k = 0; k < count; k++) out.push(...inner);
       continue;
     }
-    out.push(evalExpr(a, symbols, strict, line).value);
+    out.push({ value: evalExpr(a, symbols, strict, line).value, uninit: false });
   }
   return out;
 }
@@ -117,6 +123,7 @@ export function assemble(source: string): Program {
 
   // Pass 2: resolve operands and emit data into the memory image.
   const memory = new Uint8Array(0x10000);
+  const uninit = new Uint8Array(0x10000);
   const instrs = new Map<number, Instr>();
   const codeBytes = new Uint8Array(0x10000);
   let entry: number | undefined;
@@ -127,11 +134,12 @@ export function assemble(source: string): Program {
       const values = dataValues(l.args, width, symbols, true, l.line);
       const min = width === 8 ? -128 : -32768;
       const max = width === 8 ? 255 : 65535;
-      values.forEach((v, k) => {
+      values.forEach(({ value: v, uninit: blank }, k) => {
         if (v < min || v > max) throw new AsmError(`Value ${v} does not fit in ${width} bits`, l.line);
         const a = it.addr + k * (width / 8);
         memory[a] = v & 0xff;
         if (width === 16) memory[a + 1] = (v >> 8) & 0xff;
+        if (blank) for (let b = 0; b < width / 8; b++) uninit[a + b] = 1;
       });
       continue;
     }
@@ -148,5 +156,5 @@ export function assemble(source: string): Program {
     entry ??= it.addr;
   }
 
-  return { instrs, memory, symbols, entry: entry ?? 0 };
+  return { instrs, memory, symbols, uninit, entry: entry ?? 0 };
 }

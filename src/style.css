@@ -255,9 +255,16 @@ a.key { display: inline-flex; align-items: center; text-decoration: none; }
   .docs-nav { position: sticky; top: var(--space-lg); max-height: calc(100dvh - 2 * var(--space-lg)); overflow-y: auto; }
 }
 
-/* the text that does not assemble: a wavy underline in the coloured layer, the reason in a tooltip and under the editor */
-.tk-err { text-decoration: underline wavy var(--color-error); text-decoration-thickness: 1.5px; text-underline-offset: 3px; background: color-mix(in oklab, var(--color-error) 22%, transparent); }
+/* what the linter points at: the text itself gets a wavy underline (red for an error, yellow for a warning); the reason is in a tooltip and in the list */
+.tk-err, .tk-warn { text-decoration-line: underline; text-decoration-style: wavy; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.tk-err { text-decoration-color: var(--color-error); background: color-mix(in oklab, var(--color-error) 22%, transparent); }
+.tk-warn { text-decoration-color: var(--color-warning, oklch(82% 0.16 85)); background: color-mix(in oklab, var(--color-warning, oklch(82% 0.16 85)) 18%, transparent); }
 .lint-tip { position: fixed; z-index: 31; max-width: min(28rem, calc(100vw - 16px)); padding: var(--space-3xs) var(--space-sm); border: var(--rule-hair) solid var(--color-error); border-radius: var(--radius-input); background: var(--color-paper); color: var(--color-ink); font: 500 var(--text-sm)/1.4 var(--font-body); box-shadow: 0 6px 20px oklch(21% 0.028 262 / 0.25); pointer-events: none; }
+.lint-tip[data-severity="warning"] { border-color: var(--color-warning, oklch(70% 0.16 85)); }
 .lint-tip[hidden] { display: none; }
-.lint { margin: 0; padding: var(--space-xs) var(--space-sm); border-left: 3px solid var(--color-error); background: color-mix(in oklab, var(--color-error) 9%, var(--color-paper)); color: var(--color-ink); font: 500 var(--text-sm)/1.4 var(--font-body); }
-.lint[hidden] { display: none; }
+.lint-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.lint-list[hidden] { display: none; }
+.lint-item { padding: var(--space-xs) var(--space-sm); border-left: 3px solid var(--color-error); background: color-mix(in oklab, var(--color-error) 9%, var(--color-paper)); color: var(--color-ink); font: 500 var(--text-sm)/1.4 var(--font-body); cursor: pointer; }
+.lint-item[data-severity="warning"] { border-left-color: var(--color-warning, oklch(70% 0.16 85)); background: color-mix(in oklab, var(--color-warning, oklch(82% 0.16 85)) 14%, var(--color-paper)); }
+.lint-opts { font: 400 var(--text-sm)/1.4 var(--font-body); }
+.lint-checks { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-md); padding-top: var(--space-xs); }

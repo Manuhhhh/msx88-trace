@@ -137,10 +137,16 @@ export class Cpu {
   private random: (max: number) => number;
   private stackBase: number;
   private cur: Pending = { memWrites: [], io: [], output: "" };
+  /** Bytes declared with `?` that nothing has stored into yet. */
+  private blank: Uint8Array;
+  private curLine = 0;
+  /** Instructions that read a byte declared with `?` before anything was stored in it; one entry per source line. */
+  readonly uninitReads: { line: number; addr: number }[] = [];
 
   constructor(program: Program, opts: CpuOptions = {}) {
     this.program = program;
     this.mem = program.memory.slice();
+    this.blank = program.uninit.slice();
     this.bus = opts.bus ?? new PlainBus();
     this.interruptPoll = opts.interruptPoll;
     this.deviceState = opts.deviceState;
@@ -188,8 +194,23 @@ export class Cpu {
     const a = addr & 0xffff;
     const before = this.read(a, w);
     this.mem[a] = value & 0xff;
-    if (w === 16) this.mem[(a + 1) & 0xffff] = (value >> 8) & 0xff;
+    this.blank[a] = 0;
+    if (w === 16) {
+      this.mem[(a + 1) & 0xffff] = (value >> 8) & 0xff;
+      this.blank[(a + 1) & 0xffff] = 0;
+    }
     this.cur.memWrites.push({ addr: a, before, after: value & mask(w), width: w });
+  }
+
+  /** Notes a read of memory that was declared with `?` and never assigned. Instruction operands only: the trace's own peeks do not count. */
+  private noteRead(addr: number, w: Width): void {
+    if (this.curLine === 0) return;
+    for (let k = 0; k < w / 8; k++) {
+      const a = (addr + k) & 0xffff;
+      if (this.blank[a] && !this.uninitReads.some((r) => r.line === this.curLine)) {
+        this.uninitReads.push({ line: this.curLine, addr: a });
+      }
+    }
   }
 
   private push16(v: number): void {
@@ -210,6 +231,7 @@ export class Cpu {
   private readOp(o: Operand, w: Width): number {
     if (o.kind === "reg") return this.getReg(o.reg);
     if (o.kind === "imm") return o.value & mask(w);
+    this.noteRead(this.addr(o), w);
     return this.read(this.addr(o), w);
   }
 
@@ -347,7 +369,10 @@ export class Cpu {
         // ASSUMPTION: INT 7 prints AL characters starting at the address in BX.
         const count = this.getReg("AL");
         let text = "";
-        for (let i = 0; i < count; i++) text += String.fromCharCode(this.read(this.regs.BX + i, 8));
+        for (let i = 0; i < count; i++) {
+          this.noteRead(this.regs.BX + i, 8);
+          text += String.fromCharCode(this.read(this.regs.BX + i, 8));
+        }
         this.cur.output += text;
         this.output += text;
         this.cur.note = `INT 7: print ${count} char(s)`;
@@ -525,7 +550,9 @@ export class Cpu {
       text = ins.text;
       line = ins.line;
       this.ip = (ins.addr + ins.size) & 0xffff;
+      this.curLine = ins.line;
       this.exec(ins);
+      this.curLine = 0;
     }
     this.stepCount++;
 
