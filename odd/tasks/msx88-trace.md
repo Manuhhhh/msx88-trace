@@ -13,7 +13,7 @@ Objective: web trace generator for MSX88 assembly (university course use). Branc
 - T2 (S2, S5) lexer/parser/assembler to memory image — inline — done, 12 tests + strict tsc OK, commit f5d5fc7. Note: tests were written after the code (no RED observed); error cases pin the behavior.
 - T3 (S2, S3) CPU core + trace events — inline — done, 28 tests + strict tsc OK, commit 45e6934 (includes bus/interruptPoll hooks and software-INT entry for T4)
 - T4 (S4) PIC, vector table, interrupts, simulated F10 — inline — done, 34 tests + strict tsc OK, commit fa2189e. Timer device internals (CONT/COMP) NOT modelled: timer ticks are injected as IRQ line 1 events. PIC reset values (IMR=FFh, INTn regs=0) are assumptions.
-- T5 (S3) trace table UI with Tailwind — inline — pending
+- T5 (S3) trace table UI with Tailwind — inline — done, commit 58c1ac7. sloplint --scope app --render: 0 FAIL, 0 WARN, F25 answered (pinned instruction column on phones). Checked states: empty, assembler error, full trace, stopped notice (loading n/a: run is synchronous). Fresh-context finish review NOT run (no subagent spawned without the user asking).
 
 ## Log
 - L1 (2026-11-17): "Quiero construir un generador de trazas para este tipo de sintaxis"
@@ -23,3 +23,4 @@ Objective: web trace generator for MSX88 assembly (university course use). Branc
 - Route: all tasks inline; no Writer trigger (units are sequential and share the core types).
 - Note: `npm audit` (before switching to bun) reported picomatch ReDoS in dev tooling; suggested fix is a downgrade, ignored.
 - L5 (2026-11-17): "usa bun" — switched package manager from npm to bun (bun.lock replaces package-lock.json).
+- L6 (2026-11-17): UI built with the hallmark skill (app screen, Cobalt theme). Render tier needed puppeteer-core, installed only in the session scratchpad, not in the project.
