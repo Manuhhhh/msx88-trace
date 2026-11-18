@@ -12,7 +12,7 @@ Objective: web trace generator for MSX88 assembly (university course use). Branc
 - T1 (S1) scaffold Vite + Tailwind + Vitest — inline — done, `bun run build` OK, commit 804c16d
 - T2 (S2, S5) lexer/parser/assembler to memory image — inline — done, 12 tests + strict tsc OK, commit f5d5fc7. Note: tests were written after the code (no RED observed); error cases pin the behavior.
 - T3 (S2, S3) CPU core + trace events — inline — done, 28 tests + strict tsc OK, commit 45e6934 (includes bus/interruptPoll hooks and software-INT entry for T4)
-- T4 (S4) PIC, vector table, interrupts, simulated F10 — inline — pending
+- T4 (S4) PIC, vector table, interrupts, simulated F10 — inline — done, 34 tests + strict tsc OK, commit fa2189e. Timer device internals (CONT/COMP) NOT modelled: timer ticks are injected as IRQ line 1 events. PIC reset values (IMR=FFh, INTn regs=0) are assumptions.
 - T5 (S3) trace table UI with Tailwind — inline — pending
 
 ## Log
