@@ -1,37 +1,28 @@
 import { simulate } from "../core/simulate";
 import type { IrqEvent, SimResult } from "../core/simulate";
 import { AsmError } from "../core/types";
+import { wireArchSelect } from "./arch";
+import { h } from "./dom";
+import type { Child } from "./dom";
 import { examplesFor } from "./examples";
 import { hex8, hex16 } from "./format";
 import { buildHistory, stackSlots } from "./history";
 import { markRange, tokenize } from "./highlight";
 import { newlineEdit, tabEdit } from "./indent";
+import { createLineHighlight } from "./linehl";
+import { revealCurrent } from "./reveal";
+import { createSuggest } from "./suggest";
+import { createTextMetrics } from "./textpos";
 import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
 import { complete } from "./complete";
-import { CHECKS, lint, loadLintSettings, saveLintSettings } from "./lint";
-import type { Check, Diagnostic } from "./lint";
-import type { Completion } from "./complete";
+import { lint, loadLintSettings, saveLintSettings } from "./lint";
+import type { Diagnostic } from "./lint";
+import { createLintView, renderLintChecks } from "./lintview";
 import { cleanName, deleteScript, listScripts, saveScript } from "./scripts";
 import { decodeState, encodeState } from "./share";
 import type { ShareState } from "./share";
-
-type Child = Node | string | null | undefined | false;
-
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Record<string, string | boolean | undefined> = {},
-  ...children: Child[]
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v === undefined || v === false) continue;
-    node.setAttribute(k, v === true ? "" : v);
-  }
-  for (const c of children) if (c) node.append(c);
-  return node;
-}
 
 const LINE_IDS = [0, 1, 2] as const;
 
@@ -44,6 +35,7 @@ export function mountApp(root: HTMLElement): void {
         <a class="wordmark" href="./" data-i18n-aria="wordmark.label">MSX88 Trace</a>
         <div class="topbar-actions flex items-center gap-(--space-sm)">
           <select id="lang" class="control lang-select" aria-label="Idioma / Language"></select>
+          <select id="arch" class="control lang-select" data-i18n-aria="arch.label"></select>
           <label class="field-inline flex items-center gap-(--space-xs)">
             <span class="label" data-i18n="example.label"></span>
             <select id="example" class="control"></select>
@@ -177,6 +169,7 @@ export function mountApp(root: HTMLElement): void {
   const stCount = q<HTMLOutputElement>("st-count");
   const shellEl = root.querySelector<HTMLElement>(".shell")!;
   const lineHlEl = q<HTMLDivElement>("line-hl");
+  const lineHl = createLineHighlight(sourceEl, lineHlEl);
   const lintEl = q<HTMLUListElement>("lint");
   const lintChecksEl = q<HTMLDivElement>("lint-checks");
   const lintTipEl = q<HTMLDivElement>("lint-tip");
@@ -203,11 +196,10 @@ export function mountApp(root: HTMLElement): void {
 
   let gutterCount = 0;
   let painted: string | null = null;
-  // declared here, filled by the live syntax check below
-  let findings: Diagnostic[] = [];
   /** Draws the coloured copy of the source that sits under the transparent textarea. */
   function paintSource(): void {
     const text = sourceEl.value;
+    const findings = lintView.findings;
     const key = `${findings.map((f) => `${f.severity}:${f.from}:${f.to}`).join(",")}|${text}`;
     if (key === painted) return;
     painted = key;
@@ -232,46 +224,17 @@ export function mountApp(root: HTMLElement): void {
       gutterEl.parentElement!.style.setProperty("--digits", String(String(n).length));
     }
     gutterEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
-    lineHlEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
+    lineHl.sync();
   }
 
-  /**
-   * The band is positioned in the text's own coordinates and shifted by the scroll, so scrolling never
-   * fights the glide: only `top` is animated (see .line-hl), and it slides from line to line.
-   */
-  function placeHighlight(line: number, reveal: boolean): void {
-    const cs = getComputedStyle(sourceEl);
-    const lh = parseFloat(cs.lineHeight) || 1.6 * parseFloat(cs.fontSize);
-    const top = parseFloat(cs.paddingTop) + (line - 1) * lh;
-    if (reveal && (top < sourceEl.scrollTop || top + lh > sourceEl.scrollTop + sourceEl.clientHeight)) {
-      sourceEl.scrollTop = Math.max(0, top - sourceEl.clientHeight / 2);
-    }
-    // the very first placement appears in place; every later one glides from where the band was
-    const first = lineHlEl.style.top === "";
-    if (first) lineHlEl.style.transition = "none";
-    lineHlEl.style.top = `${top}px`;
-    lineHlEl.style.height = `${lh}px`;
-    lineHlEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
-    if (first) {
-      void lineHlEl.offsetHeight;
-      lineHlEl.style.transition = "";
-    }
-    lineHlEl.classList.remove("is-off");
-  }
-  function highlightLine(line: number): void {
-    if (line > 0) {
-      placeHighlight(line, true);
-    } else {
-      // fade out where it is, so the next line it lights glides in from here
-      lineHlEl.classList.add("is-off");
-    }
-  }
+  const highlightLine = (line: number): void => lineHl.show(line);
   sourceEl.addEventListener("scroll", syncGutter);
   sourceEl.addEventListener("input", syncGutter);
 
   // ---- settings ------------------------------------------------------------
 
   langEl.replaceChildren(...LANGS.map((l) => h("option", { value: l.id }, l.name)));
+  wireArchSelect(q<HTMLSelectElement>("arch"), "msx88");
 
   function buildExampleOptions(): void {
     const keep = exampleEl.value;
@@ -307,240 +270,35 @@ export function mountApp(root: HTMLElement): void {
     saveNoteEl.hidden = !listScripts().some((sc) => sc.name === name);
   }
 
-  // ---- live linter ---------------------------------------------------------------
+  // ---- live linter and suggestions ---------------------------------------------
 
-  let lintTimer: number | undefined;
+  const metrics = createTextMetrics(sourceEl);
   let lintSettings = loadLintSettings();
 
   const describeFinding = (f: Diagnostic): string => (f.key ? t(f.key, f.vars) : translateCore(f.message ?? ""));
 
-  /** Marks the text the linter points at and lists what it found, without running anything for real. */
-  function paintDiagnostic(): void {
-    hideLintTip();
-    paintSource();
-    lintEl.replaceChildren(
-      ...findings.map((f) => {
-        const text = f.line > 0 && f.key ? t("lint.at", { n: f.line, msg: describeFinding(f) }) : describeFinding(f);
-        const item = h("li", { class: "lint-item", "data-severity": f.severity }, text);
-        if (f.to > f.from) {
-          // a click takes you to the text it is about
-          item.addEventListener("click", () => {
-            sourceEl.focus();
-            sourceEl.setSelectionRange(f.from, f.to);
-          });
-        }
-        return item;
-      }),
-    );
-    lintEl.hidden = findings.length === 0;
-    if (findings.some((f) => f.severity === "error")) sourceEl.setAttribute("aria-invalid", "true");
-    else sourceEl.removeAttribute("aria-invalid");
-  }
-
-  function lintNow(): void {
-    window.clearTimeout(lintTimer);
-    const st = readState();
-    findings = lint(sourceEl.value, { input: st.input, maxSteps: st.maxSteps, events: st.events }, lintSettings);
-    paintDiagnostic();
-  }
+  const lintView = createLintView({
+    source: sourceEl,
+    list: lintEl,
+    tip: lintTipEl,
+    metrics,
+    describe: describeFinding,
+    compute: () => {
+      const st = readState();
+      return lint(sourceEl.value, { input: st.input, maxSteps: st.maxSteps, events: st.events }, lintSettings);
+    },
+    onPaint: paintSource,
+  });
 
   function buildLintChecks(): void {
-    lintChecksEl.replaceChildren(
-      ...CHECKS.map((c: Check) => {
-        const box = h("input", { type: "checkbox", name: `lint-${c}` });
-        box.checked = lintSettings[c];
-        box.addEventListener("change", () => {
-          lintSettings = { ...lintSettings, [c]: box.checked };
-          saveLintSettings(lintSettings);
-          lintNow();
-        });
-        return h("label", { class: "lint-check flex items-center gap-(--space-xs)" }, box, h("span", { class: "label" }, t(`lint.check.${c}` as Key)));
-      }),
-    );
+    renderLintChecks(lintChecksEl, lintSettings, (c) => `lint.check.${c}` as Key, (next) => {
+      lintSettings = next;
+      saveLintSettings(next);
+      lintView.now();
+    });
   }
 
-  /** Waits for a pause in typing, so a half-written line is not flagged while it is being written. */
-  function scheduleLint(): void {
-    window.clearTimeout(lintTimer);
-    lintTimer = window.setTimeout(lintNow, 600);
-  }
-
-  function hideLintTip(): void {
-    lintTipEl.hidden = true;
-  }
-
-  /** Source offset of the character under a viewport point, or -1 outside the text. */
-  function offsetAtPoint(x: number, y: number): number {
-    const cs = getComputedStyle(sourceEl);
-    const lh = parseFloat(cs.lineHeight) || 1.6 * parseFloat(cs.fontSize);
-    charWidth ||= measureChar(cs);
-    const rect = sourceEl.getBoundingClientRect();
-    const line = Math.floor((y - rect.top - parseFloat(cs.paddingTop) + sourceEl.scrollTop) / lh);
-    const col = Math.floor((x - rect.left - parseFloat(cs.paddingLeft) + sourceEl.scrollLeft) / charWidth);
-    const lines = sourceEl.value.split("\n");
-    if (line < 0 || line >= lines.length || col < 0) return -1;
-    let at = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0);
-    let visual = 0;
-    for (const c of lines[line]) {
-      const next = c === "\t" ? (Math.floor(visual / 8) + 1) * 8 : visual + 1;
-      if (col < next) return at;
-      visual = next;
-      at++;
-    }
-    return -1;
-  }
-
-  sourceEl.addEventListener("mousemove", (e) => {
-    if (findings.length === 0) return;
-    const at = offsetAtPoint(e.clientX, e.clientY);
-    const f = findings.find((x) => x.to > x.from && at >= x.from && at < x.to);
-    if (!f) {
-      hideLintTip();
-      return;
-    }
-    lintTipEl.textContent = describeFinding(f);
-    lintTipEl.dataset.severity = f.severity;
-    lintTipEl.hidden = false;
-    const { x, y } = wordPosition(f.from);
-    const w = lintTipEl.offsetWidth;
-    lintTipEl.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
-    lintTipEl.style.top = `${y + 2}px`;
-  });
-  sourceEl.addEventListener("mouseleave", hideLintTip);
-  sourceEl.addEventListener("scroll", hideLintTip);
-  sourceEl.addEventListener("input", hideLintTip);
-
-  sourceEl.addEventListener("input", scheduleLint);
-
-  // ---- suggestions and autocomplete -------------------------------------------
-
-  let sug: Completion | null = null;
-  let sugIndex = 0;
-  let sugManual = false;
-  /** Enter only accepts once the user has chosen with the arrows (or opened the list with Ctrl+Space). */
-  let sugChosen = false;
-  let accepting = false;
-
-  function closeSuggest(): void {
-    if (!sug) return;
-    sug = null;
-    suggestEl.hidden = true;
-    suggestEl.replaceChildren();
-    sourceEl.removeAttribute("aria-activedescendant");
-    suggestStatusEl.textContent = "";
-  }
-
-  let charWidth = 0;
-  function measureChar(cs: CSSStyleDeclaration): number {
-    const ctx = document.createElement("canvas").getContext("2d");
-    if (!ctx) return parseFloat(cs.fontSize) * 0.6;
-    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    return ctx.measureText("0").width;
-  }
-
-  /** Viewport position of the start of the word being completed, and the height of a line. */
-  function wordPosition(offset: number): { x: number; y: number; lh: number } {
-    const cs = getComputedStyle(sourceEl);
-    const fontSize = parseFloat(cs.fontSize);
-    const lh = parseFloat(cs.lineHeight) || fontSize * 1.6;
-    charWidth ||= measureChar(cs);
-    const before = sourceEl.value.slice(0, offset);
-    const line = before.split("\n").length - 1;
-    let col = 0;
-    for (const c of before.slice(before.lastIndexOf("\n") + 1)) col = c === "\t" ? (Math.floor(col / 8) + 1) * 8 : col + 1;
-    const rect = sourceEl.getBoundingClientRect();
-    return {
-      x: rect.left + parseFloat(cs.paddingLeft) + col * charWidth - sourceEl.scrollLeft,
-      y: rect.top + parseFloat(cs.paddingTop) + (line + 1) * lh - sourceEl.scrollTop,
-      lh,
-    };
-  }
-
-  function paintSuggest(): void {
-    if (!sug) return;
-    suggestEl.replaceChildren(
-      ...sug.items.map((it, i) =>
-        h(
-          "li",
-          { id: `sg-${i}`, class: "suggest-item", role: "option", "aria-selected": String(i === sugIndex) },
-          h("span", { class: "suggest-label" }, it.label),
-          h("span", { class: "suggest-kind" }, t(it.detail ?? (`kind.${it.kind}` as Key))),
-        ),
-      ),
-    );
-    sourceEl.setAttribute("aria-activedescendant", `sg-${sugIndex}`);
-    suggestEl.children[sugIndex]?.scrollIntoView({ block: "nearest" });
-  }
-
-  function placeSuggest(): void {
-    if (!sug) return;
-    const { x, y, lh } = wordPosition(sug.from);
-    suggestEl.hidden = false;
-    const w = suggestEl.offsetWidth;
-    const hgt = suggestEl.offsetHeight;
-    const flip = y + hgt > window.innerHeight - 8 && y - lh - hgt > 8;
-    suggestEl.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
-    suggestEl.style.top = `${flip ? y - lh - hgt : y}px`;
-  }
-
-  function openSuggest(manual: boolean): void {
-    const next = complete(sourceEl.value, sourceEl.selectionStart, manual);
-    if (!next || sourceEl.selectionStart !== sourceEl.selectionEnd) {
-      closeSuggest();
-      return;
-    }
-    const keep = sug?.items[sugIndex]?.label;
-    sug = next;
-    sugManual = manual;
-    sugChosen = manual;
-    sugIndex = Math.max(0, next.items.findIndex((it) => it.label === keep));
-    paintSuggest();
-    placeSuggest();
-    suggestStatusEl.textContent = plural("suggest.count", next.items.length);
-  }
-
-  function moveSuggest(delta: number): void {
-    if (!sug) return;
-    sugIndex = (sugIndex + delta + sug.items.length) % sug.items.length;
-    sugChosen = true;
-    for (const [i, li] of [...suggestEl.children].entries()) li.setAttribute("aria-selected", String(i === sugIndex));
-    sourceEl.setAttribute("aria-activedescendant", `sg-${sugIndex}`);
-    suggestEl.children[sugIndex]?.scrollIntoView({ block: "nearest" });
-  }
-
-  function acceptSuggest(): void {
-    if (!sug) return;
-    const { from, to, items } = sug;
-    const text = items[sugIndex].insert;
-    closeSuggest();
-    accepting = true;
-    sourceEl.setSelectionRange(from, to);
-    // insertText keeps the browser's undo history; setRangeText is the fallback where it is unavailable
-    if (!document.execCommand("insertText", false, text)) {
-      sourceEl.setRangeText(text, from, to, "end");
-      sourceEl.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    accepting = false;
-  }
-
-  sourceEl.addEventListener("input", (e) => {
-    if (accepting) return;
-    const type = (e as InputEvent).inputType ?? "";
-    if (type === "insertText") openSuggest(false);
-    else if (sug && type.startsWith("delete")) openSuggest(sugManual);
-    else closeSuggest();
-  });
-  sourceEl.addEventListener("blur", closeSuggest);
-  sourceEl.addEventListener("scroll", placeSuggest); // typing near the bottom scrolls the editor: follow the word
-  window.addEventListener("resize", closeSuggest);
-  // mousedown, not click: the editor must keep the focus while an item is chosen
-  suggestEl.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    const li = (e.target as HTMLElement).closest("li");
-    if (!li || !sug) return;
-    sugIndex = [...suggestEl.children].indexOf(li);
-    acceptSuggest();
-  });
+  const suggest = createSuggest({ source: sourceEl, list: suggestEl, status: suggestStatusEl, metrics, complete });
 
   function updateSettingsLabel(): void {
     const n = eventsEl.children.length;
@@ -587,7 +345,7 @@ export function mountApp(root: HTMLElement): void {
     eventsEl.replaceChildren();
     for (const ev of s.events) addEventRow(ev);
     updateSettingsLabel();
-    lintNow();
+    lintView.now();
   }
 
   function readState(): ShareState {
@@ -914,22 +672,6 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
-  /** Scrolls a ledger just enough to bring the current step's row or cell into view, clear of the sticky headers. */
-  function revealCurrent(body: HTMLElement): void {
-    const cur = body.querySelectorAll<HTMLElement>(".is-current");
-    if (cur.length === 0) return;
-    const box = body.getBoundingClientRect();
-    const headH = body.querySelector("thead")?.getBoundingClientRect().height ?? 0;
-    const sideW = body.querySelector<HTMLElement>("tbody th")?.getBoundingClientRect().width ?? 0;
-    for (const el of [cur[0], cur[cur.length - 1]]) {
-      const r = el.getBoundingClientRect();
-      if (r.top < box.top + headH) body.scrollTop += r.top - box.top - headH;
-      else if (r.bottom > box.bottom) body.scrollTop += r.bottom - box.bottom;
-      if (r.left < box.left + sideW) body.scrollLeft += r.left - box.left - sideW;
-      else if (r.right > box.right) body.scrollLeft += r.right - box.right;
-    }
-  }
-
   function updateStepper(): void {
     const n = total();
     stRange.max = String(n);
@@ -1151,35 +893,11 @@ export function mountApp(root: HTMLElement): void {
   sourceEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      closeSuggest();
+      suggest.close();
       run();
       return;
     }
-    // Ctrl+Space is often taken by the input method or the browser, so Ctrl+I opens the list too
-    if ((e.key === " " || e.key.toLowerCase() === "i") && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-      e.preventDefault();
-      openSuggest(true);
-      return;
-    }
-    if (sug) {
-      const plain = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
-      if (plain && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-        e.preventDefault();
-        moveSuggest(e.key === "ArrowDown" ? 1 : -1);
-        return;
-      }
-      if (plain && (e.key === "Tab" || (e.key === "Enter" && sugChosen))) {
-        e.preventDefault();
-        acceptSuggest();
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeSuggest();
-        return;
-      }
-      if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key)) closeSuggest();
-    }
+    if (suggest.handleKeydown(e)) return;
     if (e.key === "Escape") {
       leaveOnTab = true;
       return;
@@ -1236,7 +954,7 @@ export function mountApp(root: HTMLElement): void {
     buildExampleOptions();
     buildScriptOptions();
     buildLintChecks();
-    paintDiagnostic();
+    lintView.paint();
     const events = readState().events;
     eventsEl.replaceChildren();
     for (const ev of events) addEventRow(ev);

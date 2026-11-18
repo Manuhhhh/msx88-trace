@@ -268,3 +268,32 @@ a.key { display: inline-flex; align-items: center; text-decoration: none; }
 .lint-item[data-severity="warning"] { border-left-color: var(--color-warning, oklch(70% 0.16 85)); background: color-mix(in oklab, var(--color-warning, oklch(82% 0.16 85)) 14%, var(--color-paper)); }
 .lint-opts { font: 400 var(--text-sm)/1.4 var(--font-body); }
 .lint-checks { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-md); padding-top: var(--space-xs); }
+
+/* ---- EduMIPS64: pipeline cycle diagram -------------------------------------- */
+
+.check { display: inline-flex; align-items: center; gap: var(--space-xs); font: 500 var(--text-sm)/1.2 var(--font-display); cursor: pointer; }
+.check input { width: 1.1rem; height: 1.1rem; accent-color: var(--color-accent); }
+.modebar .help { flex: 1 1 18rem; margin: 0; }
+@media (min-width: 60rem) {
+  /* the pipeline and the registers each take the full width; the memory table sits below them */
+  .ledgers--mips { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.8fr); }
+}
+.pipe { display: flex; flex-direction: column; gap: var(--space-xs); }
+.pipe-nav { display: flex; align-items: center; gap: var(--space-sm); }
+.pipe-legend { margin: 0; }
+.log--pipe { width: max-content; min-width: 100%; }
+.log--pipe tbody th { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.log--pipe th.cyc { text-align: center; min-width: 2.6rem; }
+/* each stage keeps its own colour through the row highlights (--st-bg), which would otherwise paint over it */
+.log td.st { text-align: center; padding-inline: var(--space-3xs); font-size: var(--text-xs); font-weight: 500; color: var(--color-ink); background: var(--st-bg, transparent); }
+.st-IF { --st-bg: var(--color-paper-3); }
+.st-ID { --st-bg: color-mix(in oklab, var(--color-accent) 12%, var(--color-paper)); }
+.st-EX { --st-bg: color-mix(in oklab, var(--color-accent) 24%, var(--color-paper)); }
+.st-MEM { --st-bg: color-mix(in oklab, var(--color-accent) 36%, var(--color-paper)); }
+.st-WB { --st-bg: color-mix(in oklab, var(--color-accent) 48%, var(--color-paper)); }
+.st-RAW { --st-bg: color-mix(in oklab, var(--color-error) 20%, var(--color-paper)); }
+.log td.st-RAW, .log--pipe tr.is-hover td.st-RAW, .log--pipe tr.is-current td.st-RAW { color: var(--color-error); }
+.log td.st-IF.is-wait { --st-bg: transparent; color: var(--color-muted); }
+.log--pipe tr.is-hover td.st, .log--pipe tr.is-current td.st { background: var(--st-bg, transparent); }
+/* a taken branch edges its row, the same signature as an interrupt in the MSX88 tables */
+.log tr.log-row--flush th { box-shadow: inset 3px 0 0 var(--color-accent-deep); }
