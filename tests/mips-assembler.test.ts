@@ -24,8 +24,8 @@ describe("EduMIPS64 assembler", () => {
     expect(p.symbols.get("a")).toEqual({ kind: "data", value: 0 });
     expect(p.symbols.get("b")).toEqual({ kind: "data", value: 8 });
     expect(p.symbols.get("c")).toEqual({ kind: "data", value: 16 });
-    expect(Array.from(p.data.slice(8, 16))).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
-    expect(Array.from(p.data.slice(16, 24))).toEqual([7, 0, 0, 0, 8, 0, 0, 0]);
+    expect(Array.from(p.data.slice(8, 16))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(Array.from(p.data.slice(16, 24))).toEqual([0, 0, 0, 7, 0, 0, 0, 8]);
   });
 
   it("aligns a label that sits alone on its line with the datum that follows", () => {
@@ -66,6 +66,11 @@ describe("EduMIPS64 assembler", () => {
     expect(i8.rs).toBe(31);
     expect(i9.imm).toBe(0n);
     expect(p.instrs.map((i) => i.addr)).toEqual([0, 4, 8, 12, 16, 20, 24, 28, 32, 36]);
+  });
+
+  it("reads dsllv as rd, rt, rs (value first, amount last)", () => {
+    const [i] = asm("dsllv r1, r2, r3\nhalt").instrs;
+    expect([i.rd, i.rt, i.rs]).toEqual([1, 2, 3]);
   });
 
   it("uses a data label as an immediate and accepts label+N", () => {

@@ -1,4 +1,5 @@
 import { AsmError } from "../core/types";
+import { storeBytes } from "./memory";
 
 // ASSUMPTION: EduMIPS64 syntax as documented at edumips64.readthedocs.io, from memory:
 // `.word` is an alias of `.word64`, data memory starts at address 0 and data is
@@ -45,6 +46,8 @@ export const DIRECTIVES = new Set([
   ".data", ".text", ".code", ".global", ".globl", ".entry",
   ".byte", ".word", ".word16", ".word32", ".word64", ".space", ".ascii", ".asciiz",
 ]);
+
+const VARIABLE_SHIFTS = new Set(["dsllv", "dsrlv", "dsrav"]);
 
 const ABI_NAMES = [
   "zero", "at", "v0", "v1", "a0", "a1", "a2", "a3",
@@ -279,7 +282,7 @@ export function assembleMips(source: string): MipsProgram {
     if (size) {
       for (const a of it.args) {
         const v = evalExpr(a, symbols, it.line);
-        for (let b = 0; b < size; b++) data[at + b] = Number((BigInt.asUintN(size * 8, v) >> BigInt(8 * b)) & 0xffn);
+        storeBytes(data, at, size, v);
         at += size;
       }
     } else if (it.op === ".ascii" || it.op === ".asciiz") {
@@ -362,8 +365,14 @@ function encode(ln: RawLine, index: number, symbols: Map<string, MipsSym>, count
   switch (format) {
     case "rrr":
       ins.rd = reg(args[0]);
-      ins.rs = reg(args[1]);
-      ins.rt = reg(args[2]);
+      if (VARIABLE_SHIFTS.has(mn)) {
+        // dsllv rd, rt, rs: the value comes first and the shift amount last.
+        ins.rt = reg(args[1]);
+        ins.rs = reg(args[2]);
+      } else {
+        ins.rs = reg(args[1]);
+        ins.rt = reg(args[2]);
+      }
       break;
     case "rri":
       ins.rt = reg(args[0]);
