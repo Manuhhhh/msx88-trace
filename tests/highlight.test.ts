@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EXAMPLES } from "../src/ui/examples";
-import { tokenize } from "../src/ui/highlight";
+import { markRange, tokenize } from "../src/ui/highlight";
 
 const kinds = (src: string) => tokenize(src).filter((t) => t.kind).map((t) => [t.text, t.kind]);
 
@@ -46,5 +46,25 @@ describe("source highlighting", () => {
     for (const ex of EXAMPLES) {
       expect(tokenize(ex.state.source).map((t) => t.text).join("")).toBe(ex.state.source);
     }
+  });
+});
+
+describe("markRange", () => {
+  it("flags only the given text and still joins back into the source", () => {
+    const src = "        MOV AX, 1 ; note";
+    const out = markRange(tokenize(src), 12, 14);
+    expect(out.map((t) => t.text).join("")).toBe(src);
+    expect(out.filter((t) => t.error).map((t) => t.text)).toEqual(["AX"]);
+  });
+
+  it("splits a token at the edges and keeps its colour", () => {
+    const out = markRange(tokenize("MOV AX"), 1, 5);
+    expect(out.filter((t) => t.error).map((t) => t.text).join("")).toBe("OV A");
+    expect(out.filter((t) => t.error).map((t) => t.kind)).toEqual(["ins", undefined, "reg"]);
+  });
+
+  it("returns the tokens untouched for an empty range", () => {
+    const tokens = tokenize("MOV AX");
+    expect(markRange(tokens, 3, 3)).toBe(tokens);
   });
 });

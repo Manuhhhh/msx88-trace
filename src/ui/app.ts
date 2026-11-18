@@ -4,12 +4,14 @@ import { AsmError } from "../core/types";
 import { examplesFor } from "./examples";
 import { hex8, hex16 } from "./format";
 import { buildHistory, stackSlots } from "./history";
-import { tokenize } from "./highlight";
-import { tabEdit } from "./indent";
+import { markRange, tokenize } from "./highlight";
+import { newlineEdit, tabEdit } from "./indent";
 import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
 import { complete } from "./complete";
+import { diagnose } from "./lint";
+import type { Diagnostic } from "./lint";
 import type { Completion } from "./complete";
 import { cleanName, deleteScript, listScripts, saveScript } from "./scripts";
 import { decodeState, encodeState } from "./share";
@@ -54,6 +56,7 @@ export function mountApp(root: HTMLElement): void {
           <button type="button" id="script-delete" class="key key--quiet" data-i18n="scripts.delete" hidden></button>
           <span id="script-status" class="label" role="status"></span>
           <button type="button" id="help-open" class="key" aria-haspopup="dialog" data-i18n="help.open"></button>
+          <a id="manual-open" class="key" href="./manual.html" target="_blank" rel="noopener" data-i18n="manual.open"></a>
           <button type="button" id="run" class="key key--primary" data-i18n="run"></button>
         </div>
       </header>
@@ -70,10 +73,11 @@ export function mountApp(root: HTMLElement): void {
               <div id="line-hl" class="line-hl is-off"></div>
               <pre class="hl" aria-hidden="true"><code id="hl-code"></code></pre>
               <textarea id="source" class="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
-                data-i18n-aria="source.aria" aria-describedby="source-help" aria-autocomplete="list" aria-controls="suggest"
+                data-i18n-aria="source.aria" aria-describedby="source-help lint" aria-autocomplete="list" aria-controls="suggest"
                 placeholder="ORG 2000H&#10;MOV AX, 5&#10;INT 0&#10;END"></textarea>
             </div>
           </div>
+          <p id="lint" class="lint" role="status" hidden></p>
           <p id="source-help" class="help" data-i18n="source.help"></p>
           <details id="settings" class="settings">
             <summary id="settings-label" class="label-title"></summary>
@@ -121,6 +125,7 @@ export function mountApp(root: HTMLElement): void {
         </section>
       </main>
     </div>
+    <div id="lint-tip" class="lint-tip" role="tooltip" hidden></div>
     <ul id="suggest" class="suggest" role="listbox" data-i18n-aria="suggest.aria" hidden></ul>
     <p id="suggest-status" class="visually-hidden" role="status"></p>
     <dialog id="save-dialog" class="help-dialog save-dialog" aria-labelledby="save-title">
@@ -168,6 +173,8 @@ export function mountApp(root: HTMLElement): void {
   const stCount = q<HTMLOutputElement>("st-count");
   const shellEl = root.querySelector<HTMLElement>(".shell")!;
   const lineHlEl = q<HTMLDivElement>("line-hl");
+  const lintEl = q<HTMLParagraphElement>("lint");
+  const lintTipEl = q<HTMLDivElement>("lint-tip");
   const hlCodeEl = q<HTMLElement>("hl-code");
   const settingsLabel = q<HTMLElement>("settings-label");
   const summaryEl = q<HTMLParagraphElement>("summary");
@@ -191,14 +198,19 @@ export function mountApp(root: HTMLElement): void {
 
   let gutterCount = 0;
   let painted: string | null = null;
+  // declared here, filled by the live syntax check below
+  let diagnostic: Diagnostic | null = null;
   /** Draws the coloured copy of the source that sits under the transparent textarea. */
   function paintSource(): void {
     const text = sourceEl.value;
-    if (text === painted) return;
-    painted = text;
+    const key = `${diagnostic ? `${diagnostic.from}:${diagnostic.to}` : ""}|${text}`;
+    if (key === painted) return;
+    painted = key;
     const frag = document.createDocumentFragment();
-    for (const t of tokenize(text)) {
-      frag.append(t.kind ? h("span", { class: `tk tk-${t.kind}` }, t.text) : t.text);
+    const tokens = diagnostic ? markRange(tokenize(text), diagnostic.from, diagnostic.to) : tokenize(text);
+    for (const t of tokens) {
+      const cls = [t.kind ? `tk tk-${t.kind}` : "", t.error ? "tk-err" : ""].filter(Boolean).join(" ");
+      frag.append(cls ? h("span", { class: cls }, t.text) : t.text);
     }
     // a final newline would collapse in the <pre>; the textarea still shows its empty last line
     frag.append("\n ");
@@ -289,6 +301,82 @@ export function mountApp(root: HTMLElement): void {
     const name = cleanName(saveNameEl.value);
     saveNoteEl.hidden = !listScripts().some((sc) => sc.name === name);
   }
+
+  // ---- live syntax check ---------------------------------------------------------
+
+  let lintTimer: number | undefined;
+
+  /** Marks the text that would not assemble and says why, without running anything. */
+  function paintDiagnostic(): void {
+    hideLintTip();
+    paintSource();
+    if (!diagnostic) {
+      lintEl.hidden = true;
+      lintEl.textContent = "";
+      sourceEl.removeAttribute("aria-invalid");
+      return;
+    }
+    lintEl.textContent = translateCore(diagnostic.message);
+    lintEl.hidden = false;
+    sourceEl.setAttribute("aria-invalid", "true");
+  }
+
+  function lintNow(): void {
+    window.clearTimeout(lintTimer);
+    diagnostic = diagnose(sourceEl.value);
+    paintDiagnostic();
+  }
+
+  /** Waits for a pause in typing, so a half-written line is not flagged while it is being written. */
+  function scheduleLint(): void {
+    window.clearTimeout(lintTimer);
+    lintTimer = window.setTimeout(lintNow, 600);
+  }
+
+  function hideLintTip(): void {
+    lintTipEl.hidden = true;
+  }
+
+  /** Source offset of the character under a viewport point, or -1 outside the text. */
+  function offsetAtPoint(x: number, y: number): number {
+    const cs = getComputedStyle(sourceEl);
+    const lh = parseFloat(cs.lineHeight) || 1.6 * parseFloat(cs.fontSize);
+    charWidth ||= measureChar(cs);
+    const rect = sourceEl.getBoundingClientRect();
+    const line = Math.floor((y - rect.top - parseFloat(cs.paddingTop) + sourceEl.scrollTop) / lh);
+    const col = Math.floor((x - rect.left - parseFloat(cs.paddingLeft) + sourceEl.scrollLeft) / charWidth);
+    const lines = sourceEl.value.split("\n");
+    if (line < 0 || line >= lines.length || col < 0) return -1;
+    let at = lines.slice(0, line).reduce((n, l) => n + l.length + 1, 0);
+    let visual = 0;
+    for (const c of lines[line]) {
+      const next = c === "\t" ? (Math.floor(visual / 8) + 1) * 8 : visual + 1;
+      if (col < next) return at;
+      visual = next;
+      at++;
+    }
+    return -1;
+  }
+
+  sourceEl.addEventListener("mousemove", (e) => {
+    if (!diagnostic || diagnostic.to <= diagnostic.from) return;
+    const at = offsetAtPoint(e.clientX, e.clientY);
+    if (at < diagnostic.from || at >= diagnostic.to) {
+      hideLintTip();
+      return;
+    }
+    lintTipEl.textContent = translateCore(diagnostic.message);
+    lintTipEl.hidden = false;
+    const { x, y } = wordPosition(diagnostic.from);
+    const w = lintTipEl.offsetWidth;
+    lintTipEl.style.left = `${Math.max(8, Math.min(x, window.innerWidth - w - 8))}px`;
+    lintTipEl.style.top = `${y + 2}px`;
+  });
+  sourceEl.addEventListener("mouseleave", hideLintTip);
+  sourceEl.addEventListener("scroll", hideLintTip);
+  sourceEl.addEventListener("input", hideLintTip);
+
+  sourceEl.addEventListener("input", scheduleLint);
 
   // ---- suggestions and autocomplete -------------------------------------------
 
@@ -465,6 +553,7 @@ export function mountApp(root: HTMLElement): void {
     eventsEl.replaceChildren();
     for (const ev of s.events) addEventRow(ev);
     updateSettingsLabel();
+    lintNow();
   }
 
   function readState(): ShareState {
@@ -1012,7 +1101,6 @@ export function mountApp(root: HTMLElement): void {
   });
   q("help-open").addEventListener("click", () => helpEl.showModal());
   q("help-close").addEventListener("click", () => helpEl.close());
-  // a click on the backdrop (the dialog element itself, outside its content) closes it
   helpEl.addEventListener("click", (e) => {
     if (e.target === helpEl) helpEl.close();
   });
@@ -1062,6 +1150,19 @@ export function mountApp(root: HTMLElement): void {
       leaveOnTab = true;
       return;
     }
+    // Enter starts the new line with the indentation of the one it leaves
+    if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing) {
+      e.preventDefault();
+      leaveOnTab = false;
+      const nl = newlineEdit(sourceEl.value, sourceEl.selectionStart, sourceEl.selectionEnd);
+      sourceEl.setSelectionRange(nl.from, nl.to);
+      if (!document.execCommand("insertText", false, nl.text)) {
+        sourceEl.setRangeText(nl.text, nl.from, nl.to, "end");
+        sourceEl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      sourceEl.setSelectionRange(nl.caret, nl.caret);
+      return;
+    }
     if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey) {
       if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) leaveOnTab = false;
       return;
@@ -1100,6 +1201,7 @@ export function mountApp(root: HTMLElement): void {
     applyStaticText();
     buildExampleOptions();
     buildScriptOptions();
+    paintDiagnostic();
     const events = readState().events;
     eventsEl.replaceChildren();
     for (const ev of events) addEventRow(ev);

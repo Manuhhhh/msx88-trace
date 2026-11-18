@@ -39,3 +39,12 @@ export function tabEdit(value: string, start: number, end: number, shift: boolea
   const selStart = start === from ? start : Math.max(from, start + deltas[0]);
   return { from, to, text: lines.join("\n"), selStart, selEnd: Math.max(selStart, end + total) };
 }
+
+/** What Enter does in the editor: break the line and start the new one with the indentation the current line has. */
+export function newlineEdit(value: string, start: number, end: number): { from: number; to: number; text: string; caret: number } {
+  const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+  // only the indentation to the left of the caret is carried over, so a caret inside it does not copy what lies beyond
+  const indent = /^[ \t]*/.exec(value.slice(lineStart, start))?.[0] ?? "";
+  const text = `\n${indent}`;
+  return { from: start, to: end, text, caret: start + text.length };
+}
