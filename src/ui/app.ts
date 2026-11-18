@@ -1,12 +1,14 @@
 import { simulate } from "../core/simulate";
 import type { IrqEvent, SimResult } from "../core/simulate";
 import { AsmError } from "../core/types";
-import { EXAMPLES } from "./examples";
+import { examplesFor } from "./examples";
 import { hex8, hex16 } from "./format";
 import { buildHistory, stackSlots } from "./history";
 import { tokenize } from "./highlight";
 import { tabEdit } from "./indent";
 import type { CellSeries, Series } from "./history";
+import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
+import type { Key, Lang } from "./i18n";
 import { decodeState, encodeState } from "./share";
 import type { ShareState } from "./share";
 
@@ -26,38 +28,31 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-const LINES = [
-  { line: 0, label: "F10 key (INT0)" },
-  { line: 1, label: "Timer (INT1)" },
-  { line: 2, label: "Handshake (INT2)" },
-];
+const LINE_IDS = [0, 1, 2] as const;
 
-const STOP_TEXT: Record<SimResult["reason"], string> = {
-  halted: "Program ended",
-  "max-steps": "Stopped at the step limit",
-  error: "Stopped by an error",
-};
+type LedgerId = "registers" | "flags" | "heap" | "stack";
 
 export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
     <div class="shell">
       <header class="topbar">
-        <a class="wordmark" href="./" aria-label="MSX88 Trace, start over">MSX88 Trace</a>
+        <a class="wordmark" href="./" data-i18n-aria="wordmark.label">MSX88 Trace</a>
         <div class="topbar-actions flex items-center gap-(--space-sm)">
+          <select id="lang" class="control lang-select" aria-label="Idioma / Language"></select>
           <label class="field-inline flex items-center gap-(--space-xs)">
-            <span class="label">Example</span>
+            <span class="label" data-i18n="example.label"></span>
             <select id="example" class="control"></select>
           </label>
-          <button type="button" id="help-open" class="key" aria-haspopup="dialog">How it works</button>
-          <button type="button" id="run" class="key key--primary">Run trace</button>
+          <button type="button" id="help-open" class="key" aria-haspopup="dialog" data-i18n="help.open"></button>
+          <button type="button" id="run" class="key key--primary" data-i18n="run"></button>
         </div>
       </header>
       <main class="workspace">
         <section class="pane pane--source" aria-labelledby="h-source">
           <div class="pane-head flex items-baseline justify-between gap-(--space-sm)">
-            <h2 id="h-source" class="pane-title">Source</h2>
-            <button type="button" id="layout" class="key key--quiet layout-toggle" aria-pressed="false" aria-describedby="layout-help">Full-width source</button>
-            <span id="layout-help" class="visually-hidden">Gives the source the whole width and moves the trace below it.</span>
+            <h2 id="h-source" class="pane-title" data-i18n="source.title"></h2>
+            <button type="button" id="layout" class="key key--quiet layout-toggle" aria-pressed="false" aria-describedby="layout-help" data-i18n="layout.btn"></button>
+            <span id="layout-help" class="visually-hidden" data-i18n="layout.help"></span>
           </div>
           <div class="editor graphite cut">
             <div class="gutter" aria-hidden="true"><pre id="gutter" class="gutter-lines">1</pre></div>
@@ -65,49 +60,49 @@ export function mountApp(root: HTMLElement): void {
               <div id="line-hl" class="line-hl is-off"></div>
               <pre class="hl" aria-hidden="true"><code id="hl-code"></code></pre>
               <textarea id="source" class="code" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off"
-                aria-label="MSX88 assembly source" aria-describedby="source-help"
+                data-i18n-aria="source.aria" aria-describedby="source-help"
                 placeholder="ORG 2000H&#10;MOV AX, 5&#10;INT 0&#10;END"></textarea>
             </div>
           </div>
-          <p id="source-help" class="help">Run with Ctrl+Enter. Tab indents; Esc then Tab leaves the editor. The link in the address bar reproduces this run.</p>
+          <p id="source-help" class="help" data-i18n="source.help"></p>
           <details id="settings" class="settings">
-            <summary id="settings-label" class="label-title">Run settings</summary>
+            <summary id="settings-label" class="label-title"></summary>
             <div class="settings-body">
               <div class="grid gap-(--space-sm) sm:grid-cols-2">
                 <label class="field flex flex-col gap-(--space-3xs)">
-                  <span class="label">Keyboard input for INT 6</span>
+                  <span class="label" data-i18n="settings.input"></span>
                   <input id="input" class="control" type="text" name="input" autocomplete="off" />
                 </label>
                 <label class="field flex flex-col gap-(--space-3xs)">
-                  <span class="label">Step limit</span>
+                  <span class="label" data-i18n="settings.max"></span>
                   <input id="max" class="control" type="number" name="max-steps" min="1" max="20000" inputmode="numeric" />
                 </label>
               </div>
               <fieldset class="events">
-                <legend class="label">Interrupt requests</legend>
+                <legend class="label" data-i18n="settings.events"></legend>
                 <ol id="events" class="events-list flex flex-col gap-(--space-xs)"></ol>
-                <button type="button" id="add-event" class="key">Add request</button>
+                <button type="button" id="add-event" class="key" data-i18n="settings.add"></button>
               </fieldset>
             </div>
           </details>
         </section>
         <section class="pane pane--trace" aria-labelledby="h-trace">
           <div class="pane-head flex flex-wrap items-baseline gap-x-(--space-md) gap-y-(--space-3xs)">
-            <h2 id="h-trace" class="pane-title">Trace</h2>
+            <h2 id="h-trace" class="pane-title" data-i18n="trace.title"></h2>
             <p id="summary" class="summary" role="status"></p>
           </div>
           <div id="modebar" class="modebar" hidden>
-            <div class="seg" role="group" aria-label="Trace view">
-              <button type="button" id="mode-all" class="key key--quiet seg-btn" aria-pressed="true">All steps</button>
-              <button type="button" id="mode-step" class="key key--quiet seg-btn" aria-pressed="false">Step by step</button>
+            <div class="seg" role="group" data-i18n-aria="view.aria">
+              <button type="button" id="mode-all" class="key key--quiet seg-btn" aria-pressed="true" data-i18n="view.all"></button>
+              <button type="button" id="mode-step" class="key key--quiet seg-btn" aria-pressed="false" data-i18n="view.step"></button>
             </div>
             <div id="stepper" class="stepper" hidden>
-              <button type="button" id="st-reset" class="key key--sm">Reset</button>
-              <button type="button" id="st-prev" class="key key--sm">Previous</button>
-              <button type="button" id="st-next" class="key key--sm key--primary">Next</button>
-              <button type="button" id="st-play" class="key key--sm">Play</button>
+              <button type="button" id="st-reset" class="key key--sm" data-i18n="step.reset"></button>
+              <button type="button" id="st-prev" class="key key--sm" data-i18n="step.prev"></button>
+              <button type="button" id="st-next" class="key key--sm key--primary" data-i18n="step.next"></button>
+              <button type="button" id="st-play" class="key key--sm"></button>
               <output id="st-count" class="label stepper-count" for="st-range">0 / 0</output>
-              <input id="st-range" class="stepper-range" type="range" min="0" max="0" value="0" aria-label="Step" />
+              <input id="st-range" class="stepper-range" type="range" min="0" max="0" value="0" data-i18n-aria="step.range" />
             </div>
           </div>
           <p id="hover" class="hover-line" aria-hidden="true"></p>
@@ -118,62 +113,11 @@ export function mountApp(root: HTMLElement): void {
     </div>
     <dialog id="help" class="help-dialog" aria-labelledby="help-title">
       <div class="help-head">
-        <h2 id="help-title" class="pane-title">How MSX88 Trace works</h2>
-        <button type="button" id="help-close" class="key">Close</button>
+        <h2 id="help-title" class="pane-title" data-i18n="help.title"></h2>
+        <button type="button" id="help-close" class="key" data-i18n="help.close"></button>
       </div>
-      <div class="help-body">
-        <section>
-          <h3>What it does</h3>
-          <p>It runs an MSX88 assembly program one instruction at a time and records every value the registers, the flags, data memory and the stack go through, so you can follow the program by hand.</p>
-        </section>
-        <section>
-          <h3>Using it</h3>
-          <ol>
-            <li>Write a program in <strong>Source</strong>, or pick one from <strong>Example</strong>.</li>
-            <li>Press <strong>Run trace</strong> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. In the editor, <kbd>Tab</kbd> indents (<kbd>Shift</kbd> + <kbd>Tab</kbd> outdents); press <kbd>Esc</kbd> and then <kbd>Tab</kbd> to move on to the next control. If a line does not assemble, it is selected in the source with the reason.</li>
-            <li>Read the four tables under <strong>Trace</strong>. Every table is indexed by step: step 1 is the first instruction that ran.</li>
-          </ol>
-        </section>
-        <section>
-          <h3>The four tables</h3>
-          <dl>
-            <dt>Registers</dt>
-            <dd>One column per register, one row per step in which one of them changed. A blank cell did not change. The first row, <em>start</em>, holds the initial values.</dd>
-            <dt>Flags</dt>
-            <dd>The same layout for ZF, SF, CF, OF, IF, PF and AF, with their value (0 or 1) after the step.</dd>
-            <dt>Heap</dt>
-            <dd>One row per data memory address that was written. To the right, the value it started with (<em>s0</em>) and every value it took after, oldest first. Dimmed, struck-through values were overwritten.</dd>
-            <dt>Stack</dt>
-            <dd>One row per stack address, from the base (<code>8000H</code>) downwards. To the right, every value pushed there, oldest first. Dimmed, struck-through values were already popped.</dd>
-          </dl>
-        </section>
-        <section>
-          <h3>Hover to locate a step</h3>
-          <p>Pass the mouse over a row, or over a value in Heap or Stack, to see the step, the instruction address (IP), the source line and the instruction. The same step lights up in every table and its line is highlighted in the source. A blue edge on the left marks a step where the CPU accepted an interrupt.</p>
-        </section>
-        <section>
-          <h3>Run settings</h3>
-          <ul>
-            <li><strong>Keyboard input for INT 6</strong>: the characters the program reads.</li>
-            <li><strong>Step limit</strong>: stops runaway loops (up to 20000 steps).</li>
-            <li><strong>Interrupt requests</strong>: raise F10, the timer or the handshake line right before a given step, to trace how the program serves an interrupt.</li>
-          </ul>
-        </section>
-        <section>
-          <h3>Step by step</h3>
-          <p>Switch <strong>All steps</strong> to <strong>Step by step</strong> to run the program one instruction at a time. The tables fill in as you go, the step that just ran stays lit in each of them, and its line stays highlighted in the source. Use <strong>Next</strong> and <strong>Previous</strong> (or the <kbd>→</kbd> and <kbd>←</kbd> keys), drag the slider to jump to any step, or press <strong>Play</strong> to let it run on its own.</p>
-        </section>
-        <section>
-          <h3>Making room</h3>
-          <p><strong>Full-width source</strong> gives the editor the whole width and moves the trace below it. Each table has <strong>Expand</strong> to fill the trace area and <strong>Hide</strong> to fold it down to its title. Wide tables scroll sideways.</p>
-        </section>
-        <section>
-          <h3>Sharing</h3>
-          <p>The address bar always holds the source and settings of the last run. Copy the link and anyone who opens it gets the same trace.</p>
-        </section>
-      </div>
+      <div class="help-body" data-i18n-html="help.body"></div>
     </dialog>`;
-
 
   const q = <T extends HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!;
   const sourceEl = q<HTMLTextAreaElement>("source");
@@ -202,8 +146,12 @@ export function mountApp(root: HTMLElement): void {
   const settingsLabel = q<HTMLElement>("settings-label");
   const summaryEl = q<HTMLParagraphElement>("summary");
   const exampleEl = q<HTMLSelectElement>("example");
+  const langEl = q<HTMLSelectElement>("lang");
 
   let result: SimResult | null = null;
+  // what the trace area currently shows, so a language change can redraw it
+  let view: "empty" | "error" | "trace" = "empty";
+  let lastError: AsmError | null = null;
 
   // ---- source gutter and line highlight --------------------------------------
 
@@ -272,19 +220,27 @@ export function mountApp(root: HTMLElement): void {
 
   // ---- settings ------------------------------------------------------------
 
-  exampleEl.append(h("option", { value: "" }, "Choose an example"));
-  for (const ex of EXAMPLES) exampleEl.append(h("option", { value: ex.id }, ex.title));
+  langEl.replaceChildren(...LANGS.map((l) => h("option", { value: l.id }, l.name)));
+
+  function buildExampleOptions(): void {
+    const keep = exampleEl.value;
+    exampleEl.replaceChildren(
+      h("option", { value: "" }, t("example.choose")),
+      ...examplesFor(getLang()).map((ex) => h("option", { value: ex.id }, ex.title)),
+    );
+    exampleEl.value = keep;
+  }
 
   function updateSettingsLabel(): void {
     const n = eventsEl.children.length;
-    settingsLabel.textContent = n > 0 ? `Run settings, ${n} interrupt request${n === 1 ? "" : "s"}` : "Run settings";
+    settingsLabel.textContent = n > 0 ? plural("settings.title", n) : t("settings.title");
   }
 
   function addEventRow(ev: IrqEvent): void {
-    const select = h("select", { class: "control", "aria-label": "Line to raise" });
-    for (const l of LINES) {
-      const opt = h("option", { value: String(l.line) }, l.label);
-      if (l.line === ev.line) opt.selected = true;
+    const select = h("select", { class: "control", "aria-label": t("settings.lineAria") });
+    for (const line of LINE_IDS) {
+      const opt = h("option", { value: String(line) }, t(`line.${line}`));
+      if (line === ev.line) opt.selected = true;
       select.append(opt);
     }
     const step = h("input", {
@@ -293,14 +249,14 @@ export function mountApp(root: HTMLElement): void {
       min: "1",
       inputmode: "numeric",
       value: String(ev.step),
-      "aria-label": "Raise before step",
+      "aria-label": t("settings.stepAria"),
     });
-    const remove = h("button", { type: "button", class: "key key--quiet" }, "Remove");
+    const remove = h("button", { type: "button", class: "key key--quiet" }, t("settings.remove"));
     const li = h(
       "li",
       { class: "event-row flex flex-wrap items-center gap-(--space-xs)" },
       select,
-      h("span", { class: "label" }, "before step"),
+      h("span", { class: "label" }, t("settings.before")),
       step,
       remove,
     );
@@ -346,25 +302,28 @@ export function mountApp(root: HTMLElement): void {
 
   function renderEmpty(): void {
     result = null;
+    view = "empty";
     leaveStepping();
     setSummary();
     hoverEl.textContent = "";
     ledgersEl.replaceChildren();
-    const load = h("button", { type: "button", class: "key" }, "Load the interrupt example");
+    const load = h("button", { type: "button", class: "key" }, t("empty.load"));
     load.addEventListener("click", () => loadExample("f10"));
     regionEl.replaceChildren(
       h(
         "div",
         { class: "state" },
-        h("h3", { class: "state-title" }, "No trace yet"),
-        h("p", {}, "Write or load a program and run it. You get every value the registers, flags, memory and stack went through."),
+        h("h3", { class: "state-title" }, t("empty.title")),
+        h("p", {}, t("empty.body")),
         load,
       ),
     );
   }
 
-  function renderAsmError(err: AsmError): void {
+  function renderAsmError(err: AsmError, reveal = true): void {
     result = null;
+    view = "error";
+    lastError = err;
     leaveStepping();
     setSummary();
     hoverEl.textContent = "";
@@ -373,12 +332,12 @@ export function mountApp(root: HTMLElement): void {
       h(
         "div",
         { class: "state state--error", role: "alert" },
-        h("h3", { class: "state-title" }, "The program did not assemble"),
-        h("p", { class: "error-line" }, err.message),
-        h("p", {}, "Fix that line in the source and run the trace again."),
+        h("h3", { class: "state-title" }, t("error.title")),
+        h("p", { class: "error-line" }, translateCore(err.message)),
+        h("p", {}, t("error.fix")),
       ),
     );
-    if (err.line > 0) {
+    if (reveal && err.line > 0) {
       const lines = sourceEl.value.split("\n");
       const start = lines.slice(0, err.line - 1).reduce((n, l) => n + l.length + 1, 0);
       sourceEl.focus();
@@ -387,14 +346,14 @@ export function mountApp(root: HTMLElement): void {
   }
 
   const hexOf = (width: 8 | 16) => (width === 8 ? hex8 : hex16);
-  const HOVER_HINT = "Hover a row to see its instruction.";
 
   /** Where a step sits in the program: its number, address, source line and text. */
   function describeStep(n: number): string {
     const s = result?.steps[n - 1];
     if (!s) return "";
-    const where = s.kind === "irq" ? `interrupt accepted before ${hex16(s.ip)}H` : `IP ${hex16(s.ip)}H${s.line > 0 ? `, line ${s.line}` : ""}`;
-    return `Step ${s.step} · ${where} · ${s.text}`;
+    const ip = hex16(s.ip);
+    const where = s.kind === "irq" ? t("desc.irq", { ip }) : t("desc.ip", { ip }) + (s.line > 0 ? t("desc.line", { n: s.line }) : "");
+    return t("desc.step", { n: s.step, where, text: s.text });
   }
 
   function stepRow(n: number, ...cells: HTMLElement[]): HTMLTableRowElement {
@@ -408,7 +367,7 @@ export function mountApp(root: HTMLElement): void {
     const start = h(
       "tr",
       { class: "log-row log-row--start" },
-      h("th", { scope: "row", class: "num" }, "start"),
+      h("th", { scope: "row", class: "num" }, t("table.start")),
       ...columns.map((c, i) => h("td", { class: "val" }, fmt(i, c.series.initial))),
     );
     const rows = steps.map((n) =>
@@ -431,47 +390,47 @@ export function mountApp(root: HTMLElement): void {
   }
 
   // Each ledger can be hidden down to its header or enlarged to fill the whole trace area.
-  const LEDGER_ORDER = ["Registers", "Flags", "Heap", "Stack"] as const;
-  const collapsed = new Set<string>();
-  let expanded: string | null = null;
+  const LEDGER_ORDER: readonly LedgerId[] = ["registers", "flags", "heap", "stack"];
+  const collapsed = new Set<LedgerId>();
+  let expanded: LedgerId | null = null;
   let wide = false;
 
-  function ledger(title: string, hint: string, body: Child): HTMLElement {
+  function ledger(id: LedgerId, hint: Key): HTMLElement {
     const toggle = (btn: HTMLButtonElement, fn: () => void): HTMLButtonElement => {
       btn.addEventListener("click", fn);
       return btn;
     };
-    const hide = toggle(h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "hide" }, "Hide"), () => {
-      if (!collapsed.delete(title)) collapsed.add(title);
+    const hide = toggle(h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "hide" }, t("ledger.hide")), () => {
+      if (!collapsed.delete(id)) collapsed.add(id);
       applyLedgerState();
     });
-    const grow = toggle(h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "expand" }, "Expand"), () => {
-      expanded = expanded === title ? null : title;
+    const grow = toggle(h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "expand" }, t("ledger.expand")), () => {
+      expanded = expanded === id ? null : id;
       applyLedgerState();
     });
     return h(
       "section",
-      { class: "ledger", "data-ledger": title },
+      { class: "ledger", "data-ledger": id },
       h(
         "div",
         { class: "ledger-head" },
-        h("h3", { class: "label-title" }, title),
-        h("span", { class: "label ledger-hint" }, hint),
+        h("h3", { class: "label-title" }, t(`ledger.${id}`)),
+        h("span", { class: "label ledger-hint" }, t(hint)),
         h("span", { class: "ledger-tools" }, grow, hide),
       ),
-      h("div", { class: "ledger-body" }, body),
+      h("div", { class: "ledger-body" }),
     );
   }
 
   /** Reflects the hide / expand state on the ledgers and re-sizes the grid tracks around hidden ones. */
   function applyLedgerState(): void {
-    const isOff = (k: string): boolean => collapsed.has(k) && expanded !== k;
+    const isOff = (k: LedgerId): boolean => collapsed.has(k) && expanded !== k;
     for (const el of ledgersEl.querySelectorAll<HTMLElement>(".ledger")) {
-      const key = el.dataset.ledger!;
+      const key = el.dataset.ledger as LedgerId;
       el.classList.toggle("is-collapsed", isOff(key));
       el.classList.toggle("is-expanded", expanded === key);
-      el.querySelector('[data-act="hide"]')!.textContent = collapsed.has(key) ? "Show" : "Hide";
-      el.querySelector('[data-act="expand"]')!.textContent = expanded === key ? "Restore" : "Expand";
+      el.querySelector('[data-act="hide"]')!.textContent = collapsed.has(key) ? t("ledger.show") : t("ledger.hide");
+      el.querySelector('[data-act="expand"]')!.textContent = expanded === key ? t("ledger.restore") : t("ledger.expand");
     }
     ledgersEl.toggleAttribute("data-expanded", expanded !== null);
     if (expanded !== null) {
@@ -480,13 +439,13 @@ export function mountApp(root: HTMLElement): void {
       return;
     }
     // a track holding only hidden ledgers shrinks to its header; the rest share what is left
-    const track = (keys: readonly string[], fr: number): string => (keys.every(isOff) ? "auto" : `minmax(0, ${fr}fr)`);
+    const track = (keys: readonly LedgerId[], fr: number): string => (keys.every(isOff) ? "auto" : `minmax(0, ${fr}fr)`);
     if (wide) {
       ledgersEl.style.setProperty("--cols", LEDGER_ORDER.map((k, i) => track([k], [1.3, 1, 1, 1][i])).join(" "));
       ledgersEl.style.setProperty("--rows", "minmax(0, 1fr)");
     } else {
       ledgersEl.style.setProperty("--cols", "minmax(0, 1fr) minmax(0, 1fr)");
-      ledgersEl.style.setProperty("--rows", [track(["Registers"], 1.2), track(["Flags", "Heap"], 1), track(["Stack"], 1)].join(" "));
+      ledgersEl.style.setProperty("--rows", [track(["registers"], 1.2), track(["flags", "heap"], 1), track(["stack"], 1)].join(" "));
     }
   }
 
@@ -504,16 +463,16 @@ export function mountApp(root: HTMLElement): void {
     const head = h(
       "tr",
       {},
-      h("th", { scope: "col", class: "num" }, "Address"),
-      h("th", { scope: "colgroup", colspan: String(depth), class: "val" }, "Oldest → newest"),
+      h("th", { scope: "col", class: "num" }, t("table.address")),
+      h("th", { scope: "colgroup", colspan: String(depth), class: "val" }, t("table.order")),
     );
     const rows = cells.map((c) => {
       const fmt = hexOf(c.width);
       return h(
         "tr",
         { class: "log-row" },
-        h("th", { scope: "row", class: "num" }, `${hex16(c.addr)}H`, h("span", { class: "slot-tag" }, c.width === 8 ? "byte" : "word")),
-        h("td", { class: "val is-start", title: "Value before the first step (s0)" }, fmt(c.initial), h("span", { class: "cell-step" }, "s0")),
+        h("th", { scope: "row", class: "num" }, `${hex16(c.addr)}H`, h("span", { class: "slot-tag" }, c.width === 8 ? t("slot.byte") : t("slot.word"))),
+        h("td", { class: "val is-start", title: t("cell.initial") }, fmt(c.initial), h("span", { class: "cell-step" }, "s0")),
         ...c.points.map((p, i) => {
           const live = i === c.points.length - 1;
           return h(
@@ -521,7 +480,7 @@ export function mountApp(root: HTMLElement): void {
             {
               class: live ? "val is-set" : "val is-set is-stale",
               "data-step": String(p.step),
-              title: `${describeStep(p.step)}${live ? "" : ` · overwritten at step ${c.points[i + 1].step}`}`,
+              title: `${describeStep(p.step)}${live ? "" : t("cell.overwritten", { n: c.points[i + 1].step })}`,
             },
             fmt(p.value),
             h("span", { class: "cell-step" }, `s${p.step}`),
@@ -532,7 +491,7 @@ export function mountApp(root: HTMLElement): void {
     return h(
       "table",
       { class: "log log--stack" },
-      h("caption", { class: "visually-hidden" }, "Data memory addresses, each with the values it held in order; dimmed values were overwritten"),
+      h("caption", { class: "visually-hidden" }, t("caption.heap")),
       h("thead", {}, head),
       h("tbody", {}, ...rows),
     );
@@ -540,20 +499,20 @@ export function mountApp(root: HTMLElement): void {
 
   /** One row per stack address, from the base down; to the right, every value pushed there in order. */
   function stackTable(events: ReturnType<typeof buildHistory>["stack"]): HTMLElement {
-    if (events.length === 0) return h("p", { class: "none" }, "The stack was not used.");
+    if (events.length === 0) return h("p", { class: "none" }, t("none.stack"));
     const slots = stackSlots(events);
     const depth = Math.max(1, ...slots.map((sl) => sl.writes.length));
     const head = h(
       "tr",
       {},
-      h("th", { scope: "col", class: "num" }, "Address"),
-      h("th", { scope: "colgroup", colspan: String(depth), class: "val" }, "Oldest → newest"),
+      h("th", { scope: "col", class: "num" }, t("table.address")),
+      h("th", { scope: "colgroup", colspan: String(depth), class: "val" }, t("table.order")),
     );
     const rows = slots.map((sl, i) =>
       h(
         "tr",
         { class: i === 0 ? "log-row log-row--start" : "log-row" },
-        h("th", { scope: "row", class: "num" }, `${hex16(sl.addr)}H`, i === 0 ? h("span", { class: "slot-tag" }, "base") : null),
+        h("th", { scope: "row", class: "num" }, `${hex16(sl.addr)}H`, i === 0 ? h("span", { class: "slot-tag" }, t("slot.base")) : null),
         ...sl.writes.map((w) => {
           const live = w.poppedAt === undefined;
           return h(
@@ -561,7 +520,7 @@ export function mountApp(root: HTMLElement): void {
             {
               class: live ? "val is-set" : "val is-set is-stale",
               "data-step": String(w.step),
-              title: `${describeStep(w.step)}${live ? "" : ` · popped at step ${w.poppedAt}`}`,
+              title: `${describeStep(w.step)}${live ? "" : t("cell.popped", { n: w.poppedAt ?? "" })}`,
             },
             hex16(w.value),
             h("span", { class: "cell-step" }, `s${w.step}`),
@@ -572,7 +531,7 @@ export function mountApp(root: HTMLElement): void {
     return h(
       "table",
       { class: "log log--stack" },
-      h("caption", { class: "visually-hidden" }, "Stack addresses, each with the values pushed there in order; dimmed values were popped"),
+      h("caption", { class: "visually-hidden" }, t("caption.stack")),
       h("thead", {}, head),
       h("tbody", {}, ...rows),
     );
@@ -596,8 +555,8 @@ export function mountApp(root: HTMLElement): void {
 
   /** What the readout and the source highlight show while nothing is hovered. */
   function restText(): string {
-    if (mode === "all") return HOVER_HINT;
-    return pos === 0 ? "Ready. Press Next to run the first instruction." : describeStep(pos);
+    if (mode === "all") return t("hover.hint");
+    return pos === 0 ? t("hover.ready") : describeStep(pos);
   }
   const restLine = (): number => (mode === "step" ? lineOf(pos) : 0);
 
@@ -620,16 +579,16 @@ export function mountApp(root: HTMLElement): void {
     if (!result) return;
     const upTo = mode === "step" ? pos : result.steps.length;
     const hist = buildHistory(result.steps.slice(0, upTo));
-    const bodies: Record<string, HTMLElement> = {
-      Registers: valueTable("Register values by step, hexadecimal", "Step", hist.registers.map((r) => ({ name: r.name, series: r })), (_, v) => hex16(v)),
-      Flags: valueTable("Flag values by step", "Step", hist.flags.map((f) => ({ name: f.name, series: f })), (_, v) => String(v)),
-      Heap: hist.heap.length > 0 ? heapTable(hist.heap) : h("p", { class: "none" }, "Nothing was written to data memory."),
-      Stack: stackTable(hist.stack),
+    const bodies: Record<LedgerId, HTMLElement> = {
+      registers: valueTable(t("caption.registers"), t("table.step"), hist.registers.map((r) => ({ name: r.name, series: r })), (_, v) => hex16(v)),
+      flags: valueTable(t("caption.flags"), t("table.step"), hist.flags.map((f) => ({ name: f.name, series: f })), (_, v) => String(v)),
+      heap: hist.heap.length > 0 ? heapTable(hist.heap) : h("p", { class: "none" }, t("none.heap")),
+      stack: stackTable(hist.stack),
     };
     for (const el of ledgersEl.querySelectorAll<HTMLElement>(".ledger")) {
       const body = el.querySelector<HTMLElement>(".ledger-body")!;
       const { scrollTop, scrollLeft } = body;
-      body.replaceChildren(bodies[el.dataset.ledger!]);
+      body.replaceChildren(bodies[el.dataset.ledger as LedgerId]);
       body.scrollTop = scrollTop;
       body.scrollLeft = scrollLeft;
     }
@@ -667,7 +626,7 @@ export function mountApp(root: HTMLElement): void {
     stResetBtn.disabled = stPrevBtn.disabled = pos === 0;
     stNextBtn.disabled = pos >= n;
     stPlayBtn.disabled = n === 0;
-    stPlayBtn.textContent = playTimer === undefined ? "Play" : "Pause";
+    stPlayBtn.textContent = playTimer === undefined ? t("step.play") : t("step.pause");
   }
 
   function stopPlay(): void {
@@ -749,41 +708,51 @@ export function mountApp(root: HTMLElement): void {
     goTo(pos + (e.key === "ArrowRight" ? 1 : -1));
   });
 
-  function renderTrace(res: SimResult): void {
-    result = res;
-    hovered = 0;
-    stopPlay();
-    pos = 0;
-    modebarEl.hidden = false;
-
+  /** The notice, the screen output, the four ledger frames and the summary line of a finished run. */
+  function buildTraceChrome(res: SimResult): void {
     const children: Child[] = [];
     if (res.reason !== "halted") {
+      const reason = t(`stop.${res.reason}`);
       children.push(
-        h("p", { class: "notice", role: "status" }, res.error ? `${STOP_TEXT[res.reason]}: ${res.error}.` : `${STOP_TEXT[res.reason]}.`),
+        h(
+          "p",
+          { class: "notice", role: "status" },
+          res.error ? t("notice.withError", { reason, error: translateCore(res.error) }) : t("notice.plain", { reason }),
+        ),
       );
     }
     if (res.output) {
-      children.push(h("div", { class: "screen graphite cut" }, h("span", { class: "label" }, "Screen output"), h("pre", {}, res.output)));
+      children.push(h("div", { class: "screen graphite cut" }, h("span", { class: "label" }, t("screen.output")), h("pre", {}, res.output)));
     }
     regionEl.replaceChildren(...children.filter((c): c is Node => c !== null && c !== undefined && c !== false));
 
     ledgersEl.replaceChildren(
-      ledger("Registers", "each value placed", null),
-      ledger("Flags", "each value placed", null),
-      ledger("Heap", "data memory writes", null),
-      ledger("Stack", "pushes and pops", null),
+      ledger("registers", "hint.values"),
+      ledger("flags", "hint.values"),
+      ledger("heap", "hint.heap"),
+      ledger("stack", "hint.stack"),
     );
     applyLedgerState();
-    goTo(0);
 
     const irqs = res.steps.filter((s) => s.kind === "irq").length;
     setSummary(
       ...[
-        `${res.steps.length} steps`,
-        irqs > 0 ? `${irqs} interrupt${irqs === 1 ? "" : "s"}` : "",
-        STOP_TEXT[res.reason],
+        t("summary.steps", { n: res.steps.length }),
+        irqs > 0 ? plural("summary.interrupts", irqs) : "",
+        t(`stop.${res.reason}`),
       ].filter(Boolean),
     );
+  }
+
+  function renderTrace(res: SimResult): void {
+    result = res;
+    view = "trace";
+    hovered = 0;
+    stopPlay();
+    pos = 0;
+    modebarEl.hidden = false;
+    buildTraceChrome(res);
+    goTo(0);
   }
 
   // ---- run -----------------------------------------------------------------
@@ -810,7 +779,7 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function loadExample(id: string): void {
-    const ex = EXAMPLES.find((e) => e.id === id);
+    const ex = examplesFor(getLang()).find((e) => e.id === id);
     if (!ex) return;
     writeState(ex.state);
     run();
@@ -861,6 +830,47 @@ export function mountApp(root: HTMLElement): void {
     sourceEl.setSelectionRange(edit.selStart, edit.selEnd);
   });
 
+  // ---- language ---------------------------------------------------------------
+
+  /** Texts that live in the markup: they carry a data-i18n* attribute naming their key. */
+  function applyStaticText(): void {
+    const lang = getLang();
+    document.documentElement.lang = lang;
+    document.title = t("app.title");
+    document.querySelector('meta[name="description"]')?.setAttribute("content", t("app.description"));
+    for (const el of root.querySelectorAll<HTMLElement>("[data-i18n]")) el.textContent = t(el.dataset.i18n as Key);
+    for (const el of root.querySelectorAll<HTMLElement>("[data-i18n-html]")) el.innerHTML = t(el.dataset.i18nHtml as Key);
+    for (const el of root.querySelectorAll<HTMLElement>("[data-i18n-aria]")) el.setAttribute("aria-label", t(el.dataset.i18nAria as Key));
+    langEl.value = lang;
+  }
+
+  /** Switches the whole screen to the current language without touching the program, the settings or the position in the run. */
+  function applyLanguage(): void {
+    applyStaticText();
+    buildExampleOptions();
+    const events = readState().events;
+    eventsEl.replaceChildren();
+    for (const ev of events) addEventRow(ev);
+    updateSettingsLabel();
+    if (view === "trace" && result) {
+      buildTraceChrome(result);
+      paintTables(false);
+      hoverEl.textContent = restText();
+    } else if (view === "error" && lastError) {
+      renderAsmError(lastError, false);
+    } else {
+      renderEmpty();
+    }
+    updateStepper();
+  }
+
+  langEl.addEventListener("change", () => {
+    setLang(langEl.value as Lang);
+    applyLanguage();
+  });
+
+  applyStaticText();
+  buildExampleOptions();
   const initial = decodeState(location.hash.slice(1));
   writeState(initial ?? { source: "", input: "", maxSteps: 2000, events: [] });
   if (initial) run();

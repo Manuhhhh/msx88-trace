@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { simulate } from "../src/core/simulate";
-import { EXAMPLES } from "../src/ui/examples";
+import { EXAMPLES, examplesFor } from "../src/ui/examples";
 import { bin8, hex16 } from "../src/ui/format";
 import { decodeState, encodeState } from "../src/ui/share";
 import type { ShareState } from "../src/ui/share";
@@ -35,7 +35,7 @@ describe("share state", () => {
 });
 
 describe("built-in examples", () => {
-  for (const ex of EXAMPLES) {
+  for (const ex of [...examplesFor("en"), ...examplesFor("es")]) {
     it(`"${ex.title}" assembles and halts`, () => {
       const r = simulate(ex.state.source, {
         input: ex.state.input,
@@ -54,5 +54,15 @@ describe("built-in examples", () => {
     expect(sum.cpu.regs.AX).toBe(15);
     const print = simulate(EXAMPLES.find((e) => e.id === "print")!.state.source);
     expect(print.output).toBe("Hello, MSX88");
+  });
+
+  it("run the same program in both languages, with only the comments and titles translated", () => {
+    const code = (src: string) => src.split("\n").map((l) => l.replace(/;.*$/, "").trimEnd()).join("\n");
+    for (const en of examplesFor("en")) {
+      const es = examplesFor("es").find((e) => e.id === en.id)!;
+      expect(code(es.state.source)).toBe(code(en.state.source));
+      expect(es.title).not.toBe(en.title);
+      expect(es.state.events).toEqual(en.state.events);
+    }
   });
 });
