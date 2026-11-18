@@ -9,6 +9,8 @@ import { hex8, hex16 } from "./format";
 import { buildHistory, stackSlots } from "./history";
 import { markRange, tokenize } from "./highlight";
 import { newlineEdit, tabEdit } from "./indent";
+import { createLineHighlight } from "./linehl";
+import { revealCurrent } from "./reveal";
 import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
@@ -165,6 +167,7 @@ export function mountApp(root: HTMLElement): void {
   const stCount = q<HTMLOutputElement>("st-count");
   const shellEl = root.querySelector<HTMLElement>(".shell")!;
   const lineHlEl = q<HTMLDivElement>("line-hl");
+  const lineHl = createLineHighlight(sourceEl, lineHlEl);
   const lintEl = q<HTMLUListElement>("lint");
   const lintChecksEl = q<HTMLDivElement>("lint-checks");
   const lintTipEl = q<HTMLDivElement>("lint-tip");
@@ -220,40 +223,10 @@ export function mountApp(root: HTMLElement): void {
       gutterEl.parentElement!.style.setProperty("--digits", String(String(n).length));
     }
     gutterEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
-    lineHlEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
+    lineHl.sync();
   }
 
-  /**
-   * The band is positioned in the text's own coordinates and shifted by the scroll, so scrolling never
-   * fights the glide: only `top` is animated (see .line-hl), and it slides from line to line.
-   */
-  function placeHighlight(line: number, reveal: boolean): void {
-    const cs = getComputedStyle(sourceEl);
-    const lh = parseFloat(cs.lineHeight) || 1.6 * parseFloat(cs.fontSize);
-    const top = parseFloat(cs.paddingTop) + (line - 1) * lh;
-    if (reveal && (top < sourceEl.scrollTop || top + lh > sourceEl.scrollTop + sourceEl.clientHeight)) {
-      sourceEl.scrollTop = Math.max(0, top - sourceEl.clientHeight / 2);
-    }
-    // the very first placement appears in place; every later one glides from where the band was
-    const first = lineHlEl.style.top === "";
-    if (first) lineHlEl.style.transition = "none";
-    lineHlEl.style.top = `${top}px`;
-    lineHlEl.style.height = `${lh}px`;
-    lineHlEl.style.transform = `translateY(${-sourceEl.scrollTop}px)`;
-    if (first) {
-      void lineHlEl.offsetHeight;
-      lineHlEl.style.transition = "";
-    }
-    lineHlEl.classList.remove("is-off");
-  }
-  function highlightLine(line: number): void {
-    if (line > 0) {
-      placeHighlight(line, true);
-    } else {
-      // fade out where it is, so the next line it lights glides in from here
-      lineHlEl.classList.add("is-off");
-    }
-  }
+  const highlightLine = (line: number): void => lineHl.show(line);
   sourceEl.addEventListener("scroll", syncGutter);
   sourceEl.addEventListener("input", syncGutter);
 
@@ -900,22 +873,6 @@ export function mountApp(root: HTMLElement): void {
         if (animate) r.classList.add("is-new");
       }
       for (const body of ledgersEl.querySelectorAll<HTMLElement>(".ledger-body")) revealCurrent(body);
-    }
-  }
-
-  /** Scrolls a ledger just enough to bring the current step's row or cell into view, clear of the sticky headers. */
-  function revealCurrent(body: HTMLElement): void {
-    const cur = body.querySelectorAll<HTMLElement>(".is-current");
-    if (cur.length === 0) return;
-    const box = body.getBoundingClientRect();
-    const headH = body.querySelector("thead")?.getBoundingClientRect().height ?? 0;
-    const sideW = body.querySelector<HTMLElement>("tbody th")?.getBoundingClientRect().width ?? 0;
-    for (const el of [cur[0], cur[cur.length - 1]]) {
-      const r = el.getBoundingClientRect();
-      if (r.top < box.top + headH) body.scrollTop += r.top - box.top - headH;
-      else if (r.bottom > box.bottom) body.scrollTop += r.bottom - box.bottom;
-      if (r.left < box.left + sideW) body.scrollLeft += r.left - box.left - sideW;
-      else if (r.right > box.right) body.scrollLeft += r.right - box.right;
     }
   }
 
