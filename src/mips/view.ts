@@ -1,3 +1,5 @@
+import type { MipsProgram } from "./assembler";
+import { loadBytes, storeBytes } from "./memory";
 import type { Pipeline, PipelineRow } from "./pipeline";
 import type { MipsStep } from "./sim";
 
@@ -50,6 +52,115 @@ export interface MemRow {
 /** Every data-memory access, in execution order. */
 export function memoryRows(steps: MipsStep[]): MemRow[] {
   return steps.flatMap((s) => s.mem.map((m) => ({ step: s.n, line: s.instr.line, text: s.instr.text, ...m })));
+}
+
+export interface VarWrite {
+  step: number;
+  line: number;
+  text: string;
+  /** Value now held (signed by access size). */
+  value: bigint;
+}
+
+export interface VarCol {
+  addr: number;
+  /** The data label that covers the address (`arr`, `arr+8`), or `[addr]` when no label does. */
+  name: string;
+  /** Bytes of the first access to this address. */
+  size: number;
+  /** Value before the program ran. */
+  initial: bigint;
+  /** Every store to this address, in execution order. */
+  writes: VarWrite[];
+}
+
+export interface VarTable {
+  cols: VarCol[];
+}
+
+/** Name of the data location at `addr`: the nearest data label at or before it, plus the offset. */
+function varName(program: MipsProgram, addr: number): string {
+  let best: { name: string; value: number } | undefined;
+  for (const [name, sym] of program.symbols) {
+    if (sym.kind === "data" && sym.value <= addr && (!best || sym.value > best.value)) best = { name, value: sym.value };
+  }
+  if (!best) return `[${addr}]`;
+  return addr === best.value ? best.name : `${best.name}+${addr - best.value}`;
+}
+
+/**
+ * The trace of the variables in data memory: one entry per location a load or store touched,
+ * with its initial value and every value stored to it afterwards.
+ */
+export function variableTable(program: MipsProgram, steps: MipsStep[]): VarTable {
+  const cols = new Map<number, VarCol>();
+  for (const s of steps) {
+    for (const m of s.mem) {
+      let col = cols.get(m.addr);
+      if (!col) {
+        const initial = BigInt.asIntN(m.size * 8, loadBytes(program.data, m.addr, m.size));
+        col = { addr: m.addr, size: m.size, name: varName(program, m.addr), initial, writes: [] };
+        cols.set(m.addr, col);
+      }
+      if (m.kind === "write") col.writes.push({ step: s.n, line: s.instr.line, text: s.instr.text, value: BigInt.asIntN(m.size * 8, m.after) });
+    }
+  }
+  return { cols: [...cols.values()].sort((a, b) => a.addr - b.addr) };
+}
+
+export interface ByteRow {
+  addr: number;
+  /** Data labels that point at this byte, joined with ", ". */
+  label?: string;
+  value: number;
+  /** The byte as 8 binary digits. */
+  bits: string;
+  /** The printable ASCII character, or "" when the byte is not one. */
+  char: string;
+  /** True when a store changed it from its initial value. */
+  changed: boolean;
+  /** Step of the last store to it. */
+  step?: number;
+}
+
+export interface ByteMap {
+  rows: ByteRow[];
+  /** Bytes the map covers, which can be more than the rows drawn. */
+  total: number;
+}
+
+/**
+ * Data memory byte by byte as it stood after `steps`: the declared data plus anything a store reached.
+ * Only the first `limit` bytes are returned as rows.
+ */
+export function memoryMap(program: MipsProgram, steps: MipsStep[], limit = 1024): ByteMap {
+  let total = program.dataEnd;
+  for (const s of steps) for (const m of s.mem) if (m.kind === "write") total = Math.max(total, m.addr + m.size);
+  const mem = program.data.slice(0, total);
+  const lastStep = new Map<number, number>();
+  for (const s of steps) {
+    for (const m of s.mem) {
+      if (m.kind !== "write") continue;
+      storeBytes(mem, m.addr, m.size, m.after);
+      for (let b = 0; b < m.size; b++) lastStep.set(m.addr + b, s.n);
+    }
+  }
+  const labels = new Map<number, string[]>();
+  for (const [name, sym] of program.symbols) if (sym.kind === "data") labels.set(sym.value, [...(labels.get(sym.value) ?? []), name]);
+  const rows: ByteRow[] = [];
+  for (let addr = 0; addr < Math.min(total, limit); addr++) {
+    const value = mem[addr];
+    rows.push({
+      addr,
+      label: labels.get(addr)?.join(", "),
+      value,
+      bits: value.toString(2).padStart(8, "0"),
+      char: value >= 0x20 && value < 0x7f ? String.fromCharCode(value) : "",
+      changed: value !== program.data[addr],
+      step: lastStep.get(addr),
+    });
+  }
+  return { rows, total };
 }
 
 export interface PipelineWindow {

@@ -9,7 +9,8 @@ import { decodeMipsState, encodeMipsState } from "../mips/share";
 import type { MipsShareState } from "../mips/share";
 import { simulateMips } from "../mips/sim";
 import type { MipsSimResult } from "../mips/sim";
-import { fmtValue, memoryRows, pipelineUpTo, pipelineWindow, registerTable, stepFacts } from "../mips/view";
+import { hex16, hex8 } from "./format";
+import { fmtValue, memoryMap, memoryRows, pipelineUpTo, pipelineWindow, registerTable, stepFacts, variableTable } from "../mips/view";
 import { wireArchSelect } from "./arch";
 import { h } from "./dom";
 import type { Child } from "./dom";
@@ -347,6 +348,8 @@ export function mountMipsApp(root: HTMLElement): void {
     ledgersEl.replaceChildren(
       ledger("pipeline", "mips.pipeline", "mips.pipeline.hint"),
       ledger("registers", "mips.registers", "mips.registers.hint"),
+      ledger("variables", "mips.variables", "mips.variables.hint"),
+      ledger("bytes", "mips.bytes", "mips.bytes.hint"),
       ledger("memory", "mips.memory", "mips.memory.hint"),
     );
     paintSummary();
@@ -465,6 +468,86 @@ export function mountMipsApp(root: HTMLElement): void {
     );
   }
 
+  function variablesBody(): HTMLElement {
+    const cols = variableTable(result!.program, result!.steps.slice(0, shown())).cols;
+    if (cols.length === 0) return none("mips.none.variables");
+    // one row per memory location; its values sit in a single line, oldest first, and only the latest is not struck through
+    const value = (v: bigint, tip: string, step?: number): HTMLElement => {
+      const f = fmtValue(v);
+      return h("span", { class: "var-val", title: `${f.hex}${tip}`, "data-step": step === undefined ? undefined : String(step) }, f.dec);
+    };
+    return h(
+      "table",
+      { class: "log" },
+      h(
+        "thead",
+        {},
+        h(
+          "tr",
+          {},
+          h("th", { scope: "col" }, t("mips.col.addr")),
+          h("th", { scope: "col" }, t("mips.col.variable")),
+          h("th", { scope: "col" }, t("mips.col.values")),
+        ),
+      ),
+      h(
+        "tbody",
+        {},
+        ...cols.map((c) => {
+          const vals = [value(c.initial, ""), ...c.writes.map((w) => value(w.value, ` · ${w.text} (${w.step})`, w.step))];
+          for (const v of vals.slice(0, -1)) v.classList.add("is-old");
+          return h(
+            "tr",
+            { class: "log-row" },
+            h("th", { scope: "row", class: "num", title: t("mips.col.varTip", { addr: c.addr, size: c.size }) }, `${c.addr} · 0x${c.addr.toString(16).toUpperCase()}`),
+            h("td", { class: "var-name" }, c.name),
+            h("td", {}, h("div", { class: "var-vals" }, ...vals)),
+          );
+        }),
+      ),
+    );
+  }
+
+  /** Data memory byte by byte: address, label, character, hex and the 8 bits of each datum. */
+  function bytesBody(): HTMLElement {
+    const m = memoryMap(result!.program, result!.steps.slice(0, shown()));
+    if (m.rows.length === 0) return none("mips.none.bytes");
+    const table = h(
+      "table",
+      { class: "log" },
+      h(
+        "thead",
+        {},
+        h(
+          "tr",
+          {},
+          h("th", { scope: "col", class: "num" }, t("mips.col.addr")),
+          h("th", { scope: "col" }, t("mips.col.variable")),
+          h("th", { scope: "col" }, t("mips.col.char")),
+          h("th", { scope: "col", class: "val" }, t("mips.col.hex")),
+          h("th", { scope: "col", class: "val" }, t("mips.col.bits")),
+        ),
+      ),
+      h(
+        "tbody",
+        {},
+        ...m.rows.map((r) =>
+          h(
+            "tr",
+            { class: "log-row", "data-step": r.step === undefined ? undefined : String(r.step) },
+            h("th", { scope: "row", class: "num", title: String(r.addr) }, `${hex16(r.addr)}H`),
+            h("td", { class: "var-name" }, r.label ?? ""),
+            h("td", {}, r.char),
+            h("td", { class: r.changed ? "val is-set" : "val" }, `${hex8(r.value)}H`),
+            h("td", { class: r.changed ? "val is-set" : "val" }, r.bits),
+          ),
+        ),
+      ),
+    );
+    const more = m.total > m.rows.length ? h("p", { class: "help" }, t("mips.bytes.more", { shown: m.rows.length, total: m.total })) : null;
+    return h("div", {}, table, more);
+  }
+
   function memoryBody(): HTMLElement {
     const rows = memoryRows(result!.steps.slice(0, shown()));
     if (rows.length === 0) return none("mips.none.memory");
@@ -512,9 +595,11 @@ export function mountMipsApp(root: HTMLElement): void {
   function paintLedgers(animate = false): void {
     if (!result) return;
     const scroll = new Map<string, [number, number]>();
-    for (const id of ["pipeline", "registers", "memory"]) scroll.set(id, [body(id).scrollTop, body(id).scrollLeft]);
+    for (const id of ["pipeline", "registers", "variables", "bytes", "memory"]) scroll.set(id, [body(id).scrollTop, body(id).scrollLeft]);
     body("pipeline").replaceChildren(pipelineBody());
     body("registers").replaceChildren(registersBody());
+    body("variables").replaceChildren(variablesBody());
+    body("bytes").replaceChildren(bytesBody());
     body("memory").replaceChildren(memoryBody());
     for (const [id, [top, left]] of scroll) {
       body(id).scrollTop = top;

@@ -101,6 +101,8 @@ export interface MipsProgram {
   symbols: Map<string, MipsSym>;
   /** Source line of each data directive, by the first byte it fills (used by the trace to name memory). */
   dataLines: Map<number, number>;
+  /** Bytes of data memory the program declares (the first free address after the last datum). */
+  dataEnd: number;
   entry: number;
 }
 
@@ -302,7 +304,7 @@ export function assembleMips(source: string): MipsProgram {
     if (!sym || sym.kind !== "code") throw new AsmError(`Entry point ${entryLabel} is not a code label`, 1);
     entry = sym.value / 4;
   }
-  return { instrs, data, symbols, dataLines, entry };
+  return { instrs, data, symbols, dataLines, dataEnd, entry };
 }
 
 function alignTo(n: number, size: number): number {

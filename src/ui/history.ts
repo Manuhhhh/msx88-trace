@@ -43,7 +43,7 @@ export interface RunHistory {
 const point = (s: TraceStep, value: number): Point => ({ step: s.step, value, text: s.text, irq: s.kind === "irq" });
 
 /** Memory addresses written by a PUSH or an interrupt: they belong to the stack, not to the heap. */
-function pushedRange(prevSp: number, sp: number): [number, number] | null {
+export function pushedRange(prevSp: number, sp: number): [number, number] | null {
   return sp < prevSp ? [sp, prevSp] : null;
 }
 
