@@ -57,6 +57,8 @@ export interface TraceStep {
   stack: number[];
   /** Characters printed by INT 7 in this step. */
   output: string;
+  /** Device registers after the step (see CpuOptions.deviceState). */
+  devices?: Record<string, number>;
   note?: string;
 }
 
@@ -87,6 +89,8 @@ export interface CpuOptions {
   random?: (max: number) => number;
   /** Initial stack pointer. */
   sp?: number;
+  /** Device registers to include in every trace step (e.g. PIC IRR/ISR/IMR). */
+  deviceState?: () => Record<string, number>;
 }
 
 // ASSUMPTION: SP starts at 8000h (documented MSX88 convention, not verified here).
@@ -128,6 +132,7 @@ export class Cpu {
   private program: Program;
   private bus: Bus;
   private interruptPoll?: CpuOptions["interruptPoll"];
+  private deviceState?: CpuOptions["deviceState"];
   private input: string[];
   private random: (max: number) => number;
   private stackBase: number;
@@ -138,6 +143,7 @@ export class Cpu {
     this.mem = program.memory.slice();
     this.bus = opts.bus ?? new PlainBus();
     this.interruptPoll = opts.interruptPoll;
+    this.deviceState = opts.deviceState;
     this.input = [...(opts.input ?? "")];
     this.random = opts.random ?? ((max) => Math.floor(Math.random() * (max + 1)));
     this.stackBase = opts.sp ?? DEFAULT_SP;
@@ -538,6 +544,7 @@ export class Cpu {
       io: this.cur.io,
       stack: this.stackView(),
       output: this.cur.output,
+      devices: this.deviceState?.(),
       note: this.cur.note,
     };
   }
