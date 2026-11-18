@@ -41,6 +41,16 @@ describe("assembler", () => {
     expect(p.entry).toBe(0x2000);
   });
 
+  it("starts at 2000H even when a handler is written first at another ORG", () => {
+    const q = assemble("ORG 3000h\nh: IRET\nORG 2000h\nHLT\nEND\n");
+    expect(q.entry).toBe(0x2000);
+  });
+
+  it("falls back to the first instruction when nothing is at 2000H", () => {
+    const q = assemble("ORG 3000h\nHLT\nEND\n");
+    expect(q.entry).toBe(0x3000);
+  });
+
   it("lays out instructions with 8086 sizes", () => {
     const seq = [0x2000, 0x2001, 0x2003, 0x2005, 0x2007, 0x2009, 0x200a, 0x200f, 0x2011];
     expect([...p.instrs.keys()].filter((a) => a < 0x3000)).toEqual(seq);

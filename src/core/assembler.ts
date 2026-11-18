@@ -1,6 +1,8 @@
 import { ARITY, instrSize, validateResolved } from "./isa";
 import { REGS, RESERVED, evalExpr, parseOperand, parseSource, splitArgs } from "./parser";
 import type { SourceLine } from "./parser";
+
+const MSX88_ENTRY = 0x2000;
 import { AsmError } from "./types";
 import type { Instr, Program, Sym, Width } from "./types";
 
@@ -156,5 +158,6 @@ export function assemble(source: string): Program {
     entry ??= it.addr;
   }
 
-  return { instrs, memory, symbols, uninit, entry: entry ?? 0 };
+  // MSX88 always boots at 2000H; fall back to the first instruction when nothing lives there.
+  return { instrs, memory, symbols, uninit, entry: instrs.has(MSX88_ENTRY) ? MSX88_ENTRY : (entry ?? 0) };
 }
