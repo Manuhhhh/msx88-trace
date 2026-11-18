@@ -16,7 +16,7 @@ Objective: add a second mode to msx88-trace that traces EduMIPS64 (MIPS64) synta
 - T3 (S2, S5) pipeline timing model over the executed stream (cycle diagram, stalls, forwarding flag) — inline — done, 12 tests (RED observed: module missing) + full suite 198 + strict tsc OK, commit 61e1483. Timing is an ASSUMPTION documented at the top of src/mips/pipeline.ts; not yet checked against the EduMIPS64 manual.
 - T4 (S3) mode selector + MIPS tables and cycle diagram in the UI, MSX88 untouched — inline — done, commit 7c7668a. Verified in Chromium (screenshots: loop example, RAW without/with forwarding 16 vs 10 cycles, assembler error, MSX88 header unchanged). Stepper (step-by-step) view NOT built for MIPS.
 - T5 (S3) highlight / autocomplete / examples / manual / i18n for MIPS — inline — partly done in T4: highlight, 4 examples, i18n, Spanish messages. Pending: autocomplete, linter, MIPS instruction manual page.
-- T6 (S6, S7) step-by-step playback in the EduMIPS64 screen (shared line-highlight and reveal helpers extracted from app.ts) — inline — pending
+- T6 (S6, S7) step-by-step playback in the EduMIPS64 screen (shared line-highlight and reveal helpers extracted from app.ts) — inline — done, commit 81d01b7. RED observed for pipelineUpTo/stepFacts (3 tests); suite 225; verified in Chromium via CDP (stepper, arrows, play, reset, line highlight; MSX88 step mode re-checked after the refactor). Layout: pipeline, registers, memory each full width.
 
 ## Log
 - L1 (2026-11-18): "Quiero agregar otro modo, que es para la sintaxis de edumips64"
