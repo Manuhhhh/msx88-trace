@@ -11,7 +11,7 @@ Objective: add a second mode to msx88-trace that traces EduMIPS64 (MIPS64) synta
 ## Tasks
 - T1 (S4) MIPS64 lexer/parser/assembler to a program image — inline — done, 21 tests + strict tsc OK, commit f47a7c5. Tests written after the code (no RED observed).
 - T2 (S4) functional CPU + per-instruction trace — inline — done, 16 tests (RED observed: module missing) + full suite 186 + strict tsc OK, commit 9344ba1. Assumptions flagged in code: big-endian memory, overflow traps, misaligned error, syscall 0 and 5 only.
-- T3 (S2, S5) pipeline timing model over the executed stream (cycle diagram, stalls, forwarding flag) — inline — pending
+- T3 (S2, S5) pipeline timing model over the executed stream (cycle diagram, stalls, forwarding flag) — inline — done, 12 tests (RED observed: module missing) + full suite 198 + strict tsc OK, commit 61e1483. Timing is an ASSUMPTION documented at the top of src/mips/pipeline.ts; not yet checked against the EduMIPS64 manual.
 - T4 (S3) mode selector + MIPS tables and cycle diagram in the UI, MSX88 untouched — inline — pending
 - T5 (S3) highlight / autocomplete / examples / manual / i18n for MIPS — inline — pending
 
