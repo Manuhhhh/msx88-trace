@@ -6,9 +6,13 @@ import { h } from "./dom";
 import type { Child } from "./dom";
 import { examplesFor } from "./examples";
 import { bin8, hex8, hex16 } from "./format";
-import { buildHistory } from "./history";
+import { DEFAULT_SP } from "../core/cpu";
+import { fmtUnsigned, useRadixFor, wireRadix } from "./radix";
+import { buildHistory, stackSlots } from "./history";
 import { markRange, tokenize } from "./highlight";
-import { memoryMap, stackMap } from "./memmap";
+import { groupMemory } from "./memgroup";
+import type { MemoryEntry } from "./memgroup";
+import { declLine, memoryMap, stackMap } from "./memmap";
 import { newlineEdit, tabEdit } from "./indent";
 import { createLineHighlight } from "./linehl";
 import { revealCurrent } from "./reveal";
@@ -106,6 +110,11 @@ export function mountApp(root: HTMLElement): void {
             <div class="seg" role="group" data-i18n-aria="view.aria">
               <button type="button" id="mode-all" class="key key--quiet seg-btn" aria-pressed="true" data-i18n="view.all"></button>
               <button type="button" id="mode-step" class="key key--quiet seg-btn" aria-pressed="false" data-i18n="view.step"></button>
+            </div>
+            <div class="seg" role="group" data-i18n-aria="radix.aria">
+              <button type="button" class="key key--quiet seg-btn" data-radix="dec" aria-pressed="false">Dec</button>
+              <button type="button" class="key key--quiet seg-btn" data-radix="hex" aria-pressed="true">Hex</button>
+              <button type="button" class="key key--quiet seg-btn" data-radix="bin" aria-pressed="false">Bin</button>
             </div>
             <div id="stepper" class="stepper" hidden>
               <button type="button" id="st-reset" class="key key--sm" data-i18n="step.reset"></button>
@@ -416,7 +425,6 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
-  const hexOf = (width: 8 | 16) => (width === 8 ? hex8 : hex16);
 
   /** Where a step sits in the program: its number, address, source line and text. */
   function describeStep(n: number): string {
@@ -461,10 +469,14 @@ export function mountApp(root: HTMLElement): void {
   }
 
   // Each ledger can be hidden down to its header or enlarged to fill the whole trace area.
-  const LEDGER_ORDER: readonly LedgerId[] = ["registers", "flags", "heap", "stack", "bytes"];
+  const LEDGER_ORDER: readonly LedgerId[] = ["registers", "heap", "stack", "flags", "bytes"];
   const collapsed = new Set<LedgerId>();
   let expanded: LedgerId | null = null;
   let wide = false;
+  // strings take one row with their first and last address; the toggle on the bytes ledger shows every byte instead
+  let groupStrings = true;
+  // the stack is one row per word with every value pushed there, like the heap; the toggle shows it byte by byte
+  let compactStack = true;
 
   function ledger(id: LedgerId, hint: Key): HTMLElement {
     const toggle = (btn: HTMLButtonElement, fn: () => void): HTMLButtonElement => {
@@ -477,7 +489,22 @@ export function mountApp(root: HTMLElement): void {
     });
     const grow = toggle(h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "expand" }, t("ledger.expand")), () => {
       expanded = expanded === id ? null : id;
+      resetHeights();
       applyLedgerState();
+    });
+    const group = toggle(h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "group", "aria-pressed": String(groupStrings) }, t(groupStrings ? "bytes.ungroup" : "bytes.group")), () => {
+      groupStrings = !groupStrings;
+      group.textContent = t(groupStrings ? "bytes.ungroup" : "bytes.group");
+      group.setAttribute("aria-pressed", String(groupStrings));
+      const body = ledgersEl.querySelector<HTMLElement>('[data-ledger="bytes"] .ledger-body')!;
+      body.replaceChildren(bytesTable(mode === "step" ? pos : result!.steps.length));
+    });
+    const stackLabel = (): Key => (compactStack ? "bytes.ungroup" : "stack.compact");
+    const compact = toggle(h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "compact", "aria-pressed": String(compactStack) }, t(stackLabel())), () => {
+      compactStack = !compactStack;
+      compact.textContent = t(stackLabel());
+      compact.setAttribute("aria-pressed", String(compactStack));
+      paintTables();
     });
     return h(
       "section",
@@ -487,10 +514,15 @@ export function mountApp(root: HTMLElement): void {
         { class: "ledger-head" },
         h("h3", { class: "label-title" }, t(`ledger.${id}`)),
         h("span", { class: "label ledger-hint" }, t(hint)),
-        h("span", { class: "ledger-tools" }, grow, hide),
+        h("span", { class: "ledger-tools" }, ...(id === "bytes" ? [group] : id === "stack" ? [compact] : []), grow, hide),
       ),
       h("div", { class: "ledger-body" }),
     );
+  }
+
+  /** Drops the heights dragged by hand, which would otherwise outlive the layout they were set for. */
+  function resetHeights(): void {
+    for (const body of ledgersEl.querySelectorAll<HTMLElement>(".ledger-body")) body.style.removeProperty("height");
   }
 
   /** Reflects the hide / expand state on the ledgers and re-sizes the grid tracks around hidden ones. */
@@ -506,17 +538,16 @@ export function mountApp(root: HTMLElement): void {
     ledgersEl.toggleAttribute("data-expanded", expanded !== null);
     if (expanded !== null) {
       ledgersEl.style.removeProperty("--cols");
-      ledgersEl.style.removeProperty("--rows");
       return;
     }
     // a track holding only hidden ledgers shrinks to its header; the rest share what is left
     const track = (keys: readonly LedgerId[], fr: number): string => (keys.every(isOff) ? "auto" : `minmax(0, ${fr}fr)`);
     if (wide) {
-      ledgersEl.style.setProperty("--cols", LEDGER_ORDER.map((k, i) => track([k], [1.3, 1, 1, 1, 1.3][i])).join(" "));
-      ledgersEl.style.setProperty("--rows", "minmax(0, 1fr)");
+      // one column per table that has something to show
+      const shownKeys = LEDGER_ORDER.filter((k) => !ledgersEl.querySelector(`[data-ledger="${k}"]`)?.classList.contains("is-empty"));
+      ledgersEl.style.setProperty("--cols", shownKeys.map((k) => track([k], k === "registers" || k === "bytes" ? 1.3 : 1)).join(" "));
     } else {
       ledgersEl.style.setProperty("--cols", "minmax(0, 1fr) minmax(0, 1fr)");
-      ledgersEl.style.setProperty("--rows", [track(["registers"], 1.2), track(["flags", "heap"], 1), track(["stack"], 1), track(["bytes"], 1.2)].join(" "));
     }
   }
 
@@ -538,10 +569,10 @@ export function mountApp(root: HTMLElement): void {
       h("th", { scope: "colgroup", colspan: String(depth), class: "val" }, t("table.order")),
     );
     const rows = cells.map((c) => {
-      const fmt = hexOf(c.width);
+      const fmt = (v: number): string => fmtUnsigned(v, c.width);
       return h(
         "tr",
-        { class: "log-row" },
+        { class: "log-row", "data-decl": declOf(c.addr) },
         h("th", { scope: "row", class: "num" }, `${hex16(c.addr)}H`, h("span", { class: "slot-tag" }, c.width === 8 ? t("slot.byte") : t("slot.word"))),
         h("td", { class: "val is-start", title: t("cell.initial") }, fmt(c.initial), h("span", { class: "cell-step" }, "s0")),
         ...c.points.map((p, i) => {
@@ -594,21 +625,94 @@ export function mountApp(root: HTMLElement): void {
       h(
         "tbody",
         {},
-        ...m.rows.map((r) =>
-          h(
+        ...(groupStrings ? groupMemory(m.rows, result!.program.units, true) : m.rows.map((row): MemoryEntry<(typeof m.rows)[number]> => ({ kind: "byte", row }))).map((e) => {
+          if (e.kind === "text") {
+            const changed = e.changed ? "val is-set" : "val";
+            return h(
+              "tr",
+              { class: "log-row", "data-step": e.step === undefined ? undefined : String(e.step), "data-decl": declOf(e.start) },
+              h("th", { scope: "row", class: "num", title: `${e.start}–${e.end}` }, `${hex16(e.start)}H–${hex16(e.end)}H`),
+              h("td", { class: "var-name" }, e.label ?? ""),
+              h("td", { class: "text-cell", title: e.text }, e.text),
+              h("td", { class: changed }, t("bytes.count", { n: e.count })),
+              h("td", { class: changed }, ""),
+            );
+          }
+          if (e.kind === "unit") {
+            const cls = e.changed ? "val is-set" : "val";
+            const shown = e.blank ? "?" : e.value !== undefined ? `${e.value.toString(16).toUpperCase().padStart(e.size * 2, "0")}H` : t("bytes.count", { n: e.size });
+            return h(
+              "tr",
+              { class: "log-row", "data-step": e.step === undefined ? undefined : String(e.step), "data-decl": declOf(e.start) },
+              h("th", { scope: "row", class: "num", title: `${e.start}–${e.end}` }, `${hex16(e.start)}H–${hex16(e.end)}H`),
+              h("td", { class: "var-name" }, e.label ?? ""),
+              h("td", {}, ""),
+              h("td", { class: cls, title: e.blank ? t("bytes.blank") : undefined }, shown),
+              h("td", { class: cls }, e.value !== undefined && !e.blank ? e.value.toString(2).padStart(e.size * 8, "0") : ""),
+            );
+          }
+          const r = e.row;
+          return h(
             "tr",
-            { class: "log-row", "data-step": r.step === undefined ? undefined : String(r.step) },
+            { class: "log-row", "data-step": r.step === undefined ? undefined : String(r.step), "data-decl": declOf(r.addr) },
             h("th", { scope: "row", class: "num", title: String(r.addr) }, `${hex16(r.addr)}H`),
             h("td", { class: "var-name" }, r.label ?? ""),
             h("td", {}, r.char),
             cell(r, `${hex8(r.value)}H`),
             cell(r, bin8(r.value)),
-          ),
-        ),
+          );
+        }),
       ),
     );
     const more = m.total > m.rows.length ? h("p", { class: "help" }, t("bytes.more", { shown: m.rows.length, total: m.total })) : null;
     return h("div", {}, table, more);
+  }
+
+  /** The stack like the heap: one row per word from the base down, with every value pushed there in order; popped ones are dimmed. */
+  function stackSlotsTable(events: ReturnType<typeof buildHistory>["stack"], upTo: number): HTMLElement {
+    if (events.length === 0) return h("p", { class: "none" }, t("none.stack"));
+    const slots = stackSlots(events);
+    const sp = upTo > 0 ? result!.steps[upTo - 1].regs.SP : DEFAULT_SP;
+    const depth = Math.max(1, ...slots.map((sl) => sl.writes.length));
+    const head = h(
+      "tr",
+      {},
+      h("th", { scope: "col", class: "num" }, t("table.address")),
+      h("th", { scope: "colgroup", colspan: String(depth), class: "val" }, t("table.order")),
+    );
+    const rows = slots.map((sl, i) =>
+      h(
+        "tr",
+        { class: i === 0 ? "log-row log-row--start" : "log-row" },
+        h(
+          "th",
+          { scope: "row", class: "num" },
+          `${hex16(sl.addr)}H`,
+          i === 0 ? h("span", { class: "slot-tag" }, t("slot.base")) : null,
+          sl.addr === sp ? h("span", { class: "slot-tag" }, "SP →") : null,
+        ),
+        ...sl.writes.map((w) => {
+          const live = w.poppedAt === undefined;
+          return h(
+            "td",
+            {
+              class: live ? "val is-set" : "val is-set is-stale",
+              "data-step": String(w.step),
+              title: `${describeStep(w.step)}${live ? "" : t("cell.popped", { n: w.poppedAt ?? "" })}`,
+            },
+            fmtUnsigned(w.value, 16),
+            h("span", { class: "cell-step" }, `s${w.step}`),
+          );
+        }),
+      ),
+    );
+    return h(
+      "table",
+      { class: "log log--stack" },
+      h("caption", { class: "visually-hidden" }, t("caption.stackSlots")),
+      h("thead", {}, head),
+      h("tbody", {}, ...rows),
+    );
   }
 
   /** The stack byte by byte, from its base down: address, mark (base / SP), character, hex and bits. Popped bytes are dimmed. */
@@ -658,6 +762,7 @@ export function mountApp(root: HTMLElement): void {
   let mode: Mode = "all";
   let pos = 0; // in step mode: how many instructions have run so far
   let hovered = 0;
+  let hoveredDecl = 0;
   let playTimer: number | undefined;
 
   const total = (): number => result?.steps.length ?? 0;
@@ -675,17 +780,27 @@ export function mountApp(root: HTMLElement): void {
   }
   const restLine = (): number => (mode === "step" ? lineOf(pos) : 0);
 
-  function setHover(n: number): void {
-    if (n === hovered) return;
+  /** The source line that declares the data at `addr`, as a row attribute. */
+  const declOf = (addr: number): string | undefined => {
+    const line = declLine(result!.program, addr);
+    return line === undefined ? undefined : String(line);
+  };
+
+  /** Hovering a row lights the instruction of its step; a variable's row lights the line that declares it instead. */
+  function setHover(n: number, decl = 0): void {
+    if (n === hovered && decl === hoveredDecl) return;
     hovered = n;
+    hoveredDecl = decl;
     for (const r of ledgersEl.querySelectorAll(".is-hover")) r.classList.remove("is-hover");
     if (n > 0) for (const r of ledgersEl.querySelectorAll(`[data-step="${n}"]`)) r.classList.add("is-hover");
-    hoverEl.textContent = n > 0 ? describeStep(n) : restText();
-    highlightLine(n > 0 ? lineOf(n) : restLine());
+    hoverEl.textContent = decl > 0 ? t("hover.decl", { line: decl }) : n > 0 ? describeStep(n) : restText();
+    highlightLine(decl > 0 ? decl : n > 0 ? lineOf(n) : restLine());
   }
   ledgersEl.addEventListener("mouseover", (e) => {
-    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-step]");
-    setHover(el ? Number(el.dataset.step) : 0);
+    const target = e.target as HTMLElement;
+    const el = target.closest<HTMLElement>("[data-step]");
+    const decl = target.closest<HTMLElement>("[data-decl]");
+    setHover(el ? Number(el.dataset.step) : 0, decl ? Number(decl.dataset.decl) : 0);
   });
   ledgersEl.addEventListener("mouseleave", () => setHover(0));
 
@@ -695,10 +810,10 @@ export function mountApp(root: HTMLElement): void {
     const upTo = mode === "step" ? pos : result.steps.length;
     const hist = buildHistory(result.steps.slice(0, upTo));
     const bodies: Record<LedgerId, HTMLElement> = {
-      registers: valueTable(t("caption.registers"), t("table.step"), hist.registers.map((r) => ({ name: r.name, series: r })), (_, v) => hex16(v)),
+      registers: valueTable(t("caption.registers"), t("table.step"), hist.registers.map((r) => ({ name: r.name, series: r })), (_, v) => fmtUnsigned(v, 16)),
       flags: valueTable(t("caption.flags"), t("table.step"), hist.flags.map((f) => ({ name: f.name, series: f })), (_, v) => String(v)),
       heap: hist.heap.length > 0 ? heapTable(hist.heap) : h("p", { class: "none" }, t("none.heap")),
-      stack: stackTable(upTo),
+      stack: compactStack ? stackSlotsTable(hist.stack, upTo) : stackTable(upTo),
       bytes: bytesTable(upTo),
     };
     for (const el of ledgersEl.querySelectorAll<HTMLElement>(".ledger")) {
@@ -707,8 +822,13 @@ export function mountApp(root: HTMLElement): void {
       body.replaceChildren(bodies[el.dataset.ledger as LedgerId]);
       body.scrollTop = scrollTop;
       body.scrollLeft = scrollLeft;
+      // a table with nothing to show is left out instead of sitting there empty
+      el.classList.toggle("is-empty", body.firstElementChild?.classList.contains("none") ?? false);
     }
+    if (expanded !== null && ledgersEl.querySelector(`[data-ledger="${expanded}"]`)?.classList.contains("is-empty")) expanded = null;
+    applyLedgerState();
     hovered = 0;
+    hoveredDecl = 0;
     if (mode === "step" && pos > 0) {
       for (const r of ledgersEl.querySelectorAll(`[data-step="${pos}"]`)) {
         r.classList.add("is-current");
@@ -778,6 +898,8 @@ export function mountApp(root: HTMLElement): void {
     updateStepper();
   }
 
+  useRadixFor("msx88");
+  wireRadix(modebarEl, () => paintTables());
   modeAllBtn.addEventListener("click", () => setMode("all"));
   modeStepBtn.addEventListener("click", () => setMode("step"));
   stResetBtn.addEventListener("click", () => {
@@ -828,9 +950,9 @@ export function mountApp(root: HTMLElement): void {
 
     ledgersEl.replaceChildren(
       ledger("registers", "hint.values"),
-      ledger("flags", "hint.values"),
       ledger("heap", "hint.heap"),
       ledger("stack", "hint.stack"),
+      ledger("flags", "hint.values"),
       ledger("bytes", "hint.bytes"),
     );
     applyLedgerState();

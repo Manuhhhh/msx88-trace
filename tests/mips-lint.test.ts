@@ -7,7 +7,7 @@ import { mipsExamplesFor } from "../src/mips/examples";
 const only = (check: keyof LintSettings): LintSettings => ({ syntax: false, dead: false, loop: false, uninit: false, [check]: true });
 const marked = (src: string, d: Diagnostic): string => src.slice(d.from, d.to);
 
-describe("EduMIPS64 linter: syntax", () => {
+describe("MIPS64 linter: syntax", () => {
   it("finds nothing in an empty or valid program", () => {
     expect(lintMips("")).toEqual([]);
     expect(lintMips("daddi r1, r0, 5\nhalt")).toEqual([]);
@@ -52,7 +52,7 @@ describe("EduMIPS64 linter: syntax", () => {
   });
 });
 
-describe("EduMIPS64 linter: code that never runs", () => {
+describe("MIPS64 linter: code that never runs", () => {
   const dead = only("dead");
 
   it("flags an instruction nothing reaches, once per dead stretch", () => {
@@ -91,7 +91,7 @@ describe("EduMIPS64 linter: code that never runs", () => {
   });
 });
 
-describe("EduMIPS64 linter: loops that never end", () => {
+describe("MIPS64 linter: loops that never end", () => {
   const loop = only("loop");
 
   it("flags a backward jump from which nothing can leave", () => {
@@ -110,7 +110,7 @@ describe("EduMIPS64 linter: loops that never end", () => {
   });
 });
 
-describe("EduMIPS64 linter: registers read before they are assigned", () => {
+describe("MIPS64 linter: registers read before they are assigned", () => {
   const uninit = only("uninit");
 
   it("flags a register read before anything is written to it, once per line", () => {
@@ -150,7 +150,7 @@ describe("EduMIPS64 linter: registers read before they are assigned", () => {
   });
 });
 
-describe("EduMIPS64 linter: ordering and the built-in examples", () => {
+describe("MIPS64 linter: ordering and the built-in examples", () => {
   it("sorts findings by line", () => {
     const out = lintMips("dadd r2, r1, r1\nj end\nnop\nend: halt");
     expect(out.map((d) => d.line)).toEqual([1, 3]);
@@ -163,7 +163,7 @@ describe("EduMIPS64 linter: ordering and the built-in examples", () => {
   });
 });
 
-describe("EduMIPS64 linter: settings", () => {
+describe("MIPS64 linter: settings", () => {
   it("keeps the user's choice of checks under its own key, apart from MSX88's", () => {
     const store = new Map<string, string>();
     const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };

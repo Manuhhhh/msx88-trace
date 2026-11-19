@@ -4,7 +4,7 @@ import { getArch, archUrl } from "./arch";
 import { manualDoc } from "./manual";
 import { mipsManualDoc } from "./mips-manual";
 
-/** The instruction manual as its own page: a table of contents on the side and the reference beside it. `?arch=mips` shows the EduMIPS64 one. */
+/** The instruction manual as its own page: a table of contents on the side and the reference beside it. `?arch=mips` shows the MIPS64 one. */
 export function mountManual(root: HTMLElement): void {
   const arch = getArch();
   const mips = arch === "mips";
@@ -12,7 +12,7 @@ export function mountManual(root: HTMLElement): void {
   root.innerHTML = `
     <div class="docs-shell">
       <header class="topbar">
-        <a class="wordmark" href="${home}">${mips ? "EduMIPS64 Trace" : "MSX88 Trace"}</a>
+        <a class="wordmark" href="${home}">${mips ? "MIPS64 Trace" : "MSX88 Trace"}</a>
         <div class="topbar-actions flex items-center gap-(--space-sm)">
           <select id="lang" class="control lang-select" aria-label="Idioma / Language"></select>
           <a class="key" href="${home}" id="back"></a>

@@ -61,3 +61,38 @@ describe("MSX88 stack map", () => {
     expect(stackMap(simulate("ORG 2000H\nMOV AX, 1\nINT 0\nEND").steps).rows).toEqual([]);
   });
 });
+
+describe("grouping strings in the byte map", () => {
+  it("collapses a string into one entry with its first and last address, keeps numbers byte by byte", async () => {
+    const { groupText } = await import("../src/ui/memgroup");
+    const r = simulate('ORG 1000H\nSEL DB "El color: ", 0\nN DB 41H\nW DW 1234H\nORG 2000H\nINT 0\nEND');
+    const g = groupText(memoryMap(r.program, r.steps).rows);
+    expect(g.map((e) => (e.kind === "text" ? ["text", e.start, e.end, e.label, e.text] : e.kind === "byte" ? ["byte", e.row.addr] : ["unit", e.start]))).toEqual([
+      ["text", 0x1000, 0x100a, "SEL", "El color: "], // ends at the terminating zero
+      ["byte", 0x100b],
+      ["byte", 0x100c],
+      ["byte", 0x100d],
+    ]);
+  });
+});
+
+describe("grouping multi-byte data into address ranges", () => {
+  it("shows a DW and a DUP as one row from first to last address, in MSX88 byte order", async () => {
+    const { groupMemory } = await import("../src/ui/memgroup");
+    const r = simulate("ORG 1000H\nW DW 1234H\nB DB 7\nBUF DB 4 DUP(0)\nORG 2000H\nINT 0\nEND");
+    const g = groupMemory(memoryMap(r.program, r.steps).rows, r.program.units, true);
+    expect(g.map((e) => (e.kind === "unit" ? ["unit", e.start, e.end, e.label, e.value] : e.kind === "byte" ? ["byte", e.row.addr] : ["text"]))).toEqual([
+      ["unit", 0x1000, 0x1001, "W", 0x1234n],
+      ["byte", 0x1002],
+      ["unit", 0x1003, 0x1006, "BUF", 0n],
+    ]);
+  });
+});
+
+describe("declaration lines", () => {
+  it("finds the line of the DB/DW that fills an address, and none for undeclared memory", async () => {
+    const { declLine } = await import("../src/ui/memmap");
+    const r = simulate('ORG 1000H\nMSG DB "Hi"\nW DW 1234H\nORG 2000H\nINT 0\nEND');
+    expect([declLine(r.program, 0x1000), declLine(r.program, 0x1001), declLine(r.program, 0x1002), declLine(r.program, 0x1004)]).toEqual([2, 2, 3, undefined]);
+  });
+});

@@ -108,6 +108,14 @@ export function variableTable(program: MipsProgram, steps: MipsStep[]): VarTable
   return { cols: [...cols.values()].sort((a, b) => a.addr - b.addr) };
 }
 
+/** The source line of the data directive that fills `addr`, or undefined when none does. */
+export function declLine(program: MipsProgram, addr: number): number | undefined {
+  if (addr >= program.dataEnd) return undefined;
+  let best: number | undefined;
+  for (const start of program.dataLines.keys()) if (start <= addr && (best === undefined || start > best)) best = start;
+  return best === undefined ? undefined : program.dataLines.get(best);
+}
+
 export interface ByteRow {
   addr: number;
   /** Data labels that point at this byte, joined with ", ". */

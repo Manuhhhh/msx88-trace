@@ -30,6 +30,12 @@ export interface Sym {
   defined: boolean;
 }
 
+/** One datum that spans several addresses. */
+export interface DataUnit {
+  addr: number;
+  size: number;
+}
+
 export interface Program {
   /** Instructions by start address. */
   instrs: Map<number, Instr>;
@@ -40,6 +46,10 @@ export interface Program {
   uninit: Uint8Array;
   /** 1 for each byte reserved by DB/DW, whether or not it was given a value. */
   declared: Uint8Array;
+  /** The source line of each DB/DW directive and the addresses it fills. */
+  dataLines: { addr: number; size: number; line: number }[];
+  /** Data that takes more than one byte (a DW, a DUP, ...): where each starts and how many bytes it spans. */
+  units: DataUnit[];
   /** Address of the first instruction in source order. */
   entry: number;
 }

@@ -4,7 +4,7 @@ import type { SourceLine } from "./parser";
 
 const MSX88_ENTRY = 0x2000;
 import { AsmError } from "./types";
-import type { Instr, Program, Sym, Width } from "./types";
+import type { DataUnit, Instr, Program, Sym, Width } from "./types";
 
 interface Item {
   src: SourceLine;
@@ -127,6 +127,8 @@ export function assemble(source: string): Program {
   const memory = new Uint8Array(0x10000);
   const uninit = new Uint8Array(0x10000);
   const declared = new Uint8Array(0x10000);
+  const units: DataUnit[] = [];
+  const dataLines: Program["dataLines"] = [];
   const instrs = new Map<number, Instr>();
   const codeBytes = new Uint8Array(0x10000);
   let entry: number | undefined;
@@ -135,6 +137,14 @@ export function assemble(source: string): Program {
     if (it.kind === "data") {
       const width: Width = l.op === "DB" ? 8 : 16;
       const values = dataValues(l.args, width, symbols, true, l.line);
+      dataLines.push({ addr: it.addr, size: values.length * (width / 8), line: l.line });
+      // each DW, DUP or other argument spanning several bytes is one datum (strings are told apart by the screen)
+      let at = it.addr;
+      for (const a of l.args) {
+        const size = dataValues([a], width, symbols, true, l.line).length * (width / 8);
+        if (size > 1 && !/^(['"])/.test(a)) units.push({ addr: at, size });
+        at += size;
+      }
       const min = width === 8 ? -128 : -32768;
       const max = width === 8 ? 255 : 65535;
       values.forEach(({ value: v, uninit: blank }, k) => {
@@ -161,5 +171,5 @@ export function assemble(source: string): Program {
   }
 
   // MSX88 always boots at 2000H; fall back to the first instruction when nothing lives there.
-  return { instrs, memory, symbols, uninit, declared, entry: instrs.has(MSX88_ENTRY) ? MSX88_ENTRY : (entry ?? 0) };
+  return { instrs, memory, symbols, uninit, declared, dataLines, units, entry: instrs.has(MSX88_ENTRY) ? MSX88_ENTRY : (entry ?? 0) };
 }

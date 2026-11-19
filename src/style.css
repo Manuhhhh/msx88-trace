@@ -9,7 +9,7 @@
 
 /* ---- shell ---------------------------------------------------------------- */
 
-.shell { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-height: 100dvh; max-width: var(--container); margin-inline: auto; }
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-height: 100dvh; }
 .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) var(--space-md); min-height: 56px; padding: var(--space-xs) var(--space-lg); border-bottom: var(--rule-hair) solid var(--color-rule); }
 .topbar-actions { flex-wrap: wrap; min-width: 0; }
 .field-inline { flex: 1 1 12rem; min-width: 0; }
@@ -21,11 +21,10 @@
 .workspace { display: grid; gap: var(--space-lg); padding: var(--space-lg); grid-template-columns: minmax(0, 1fr); min-height: 0; }
 .pane { display: flex; flex-direction: column; gap: var(--space-sm); min-width: 0; min-height: 0; }
 @media (min-width: 60rem) {
-  .shell { height: 100dvh; }
-  .workspace { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-  .pane--source { overflow: hidden; }
+  .workspace { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-rows: auto; align-items: start; }
+  /* only the page scrolls: the source stays in view while the trace tables run down the page */
+  .pane--source { overflow: hidden; position: sticky; top: var(--space-lg); height: calc(100dvh - 2 * var(--space-lg)); }
   .pane--source .settings-body { max-height: 40dvh; overflow-y: auto; }
-  .pane--trace { overflow: hidden; }
 }
 
 .pane-title { font: 600 var(--text-xl)/1.1 var(--font-display); letter-spacing: var(--tracking-display); }
@@ -105,25 +104,25 @@
 
 /* ---- the trace ledgers ---------------------------------------------------- */
 
-.ledgers { display: grid; gap: var(--space-sm); grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; }
+.ledgers { display: grid; gap: var(--space-sm); grid-template-columns: minmax(0, 1fr); flex: none; align-items: start; }
 .ledgers:empty { display: none; }
 .layout-toggle { display: none; }
 @media (min-width: 60rem) {
-  .ledgers { grid-template-columns: var(--cols, repeat(2, minmax(0, 1fr))); grid-template-rows: var(--rows, minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr)); }
-  /* split view: eight register columns and the stack need the full width; flags and heap share a row */
+  .ledgers { grid-template-columns: var(--cols, repeat(2, minmax(0, 1fr))); }
+  /* split view: the registers, the flags and the byte map need the full width; heap and stack share a row */
   .shell:not([data-layout="wide"]) .ledger:nth-child(1), .shell:not([data-layout="wide"]) .ledger:nth-child(4), .shell:not([data-layout="wide"]) .ledger:nth-child(5) { grid-column: 1 / -1; }
+  /* a heap or stack table with nothing beside it takes the whole row */
+  .shell:not([data-layout="wide"]) .ledger[data-ledger="heap"]:has(+ .is-empty), .shell:not([data-layout="wide"]) .ledger.is-empty + .ledger[data-ledger="stack"] { grid-column: 1 / -1; }
   /* full-width source: it takes the top of the screen, the four ledgers sit side by side below */
-  .shell[data-layout="wide"] { height: auto; min-height: 100dvh; }
   .shell[data-layout="wide"] .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; }
-  .shell[data-layout="wide"] .pane--source, .shell[data-layout="wide"] .pane--trace { overflow: visible; }
+  .shell[data-layout="wide"] .pane--source { position: static; height: auto; overflow: visible; }
   /* the editor fills what is left of the screen under the header; the trace follows when you scroll */
   .shell[data-layout="wide"] .editor { flex: none; height: max(24rem, calc(100dvh - 17rem)); }
-  .shell[data-layout="wide"] .ledgers { flex: none; height: 28rem; }
   .layout-toggle { display: inline-block; }
 }
 .key--quiet[aria-pressed="true"] { color: var(--color-accent-deep); text-decoration-color: var(--color-accent); background: var(--color-accent-wash); }
 /* one ledger enlarged: it takes the whole trace area, the others step aside */
-.ledgers[data-expanded] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.ledgers[data-expanded] { grid-template-columns: minmax(0, 1fr); }
 .ledgers[data-expanded] .ledger:not(.is-expanded) { display: none; }
 .ledgers[data-expanded] .ledger { grid-column: 1 / -1; }
 .ledger { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-card); background: var(--color-paper); }
@@ -132,11 +131,22 @@
 .ledger-tools { display: inline-flex; gap: var(--space-3xs); margin-left: auto; }
 .ledger-btn { min-height: 28px; padding: 0 var(--space-2xs); font-size: var(--text-sm); }
 @media (pointer: coarse) { .ledger-btn { min-height: 40px; } }
-.ledger.is-collapsed { align-self: start; }
+.ledger.is-empty { display: none; }
 .ledger.is-collapsed .ledger-body, .ledger.is-collapsed .ledger-hint { display: none; }
 .ledger.is-collapsed .ledger-head { border-bottom: 0; }
-.ledger-body { flex: 1; min-height: 12rem; overflow: auto; padding: var(--space-xs); }
-@media (min-width: 60rem) { .ledger-body { min-height: 0; } }
+/* as tall as its rows up to a cap, then it scrolls; once you drag the handle the browser sets an inline height and the cap steps aside */
+.ledger-body { flex: none; height: auto; min-height: 10rem; max-height: 22rem; overflow: auto; padding: var(--space-xs); resize: vertical; }
+.ledger-body[style*="height"] { max-height: none; }
+/* a classic scrollbar that takes its own space beside the table, so an overlay one never sits over the last column or row */
+/* the page-wide scrollbar-color would switch the ::-webkit-scrollbar styling below off */
+.ledger-body { scrollbar-color: auto; }
+.ledger-body::-webkit-scrollbar { width: 12px; height: 12px; }
+.ledger-body::-webkit-scrollbar-track { background: var(--color-paper-2); }
+.ledger-body::-webkit-scrollbar-thumb { background: oklch(72% 0 0); border: 3px solid var(--color-paper-2); border-radius: 6px; }
+.ledger-body::-webkit-scrollbar-thumb:hover { background: oklch(58% 0 0); }
+.ledger-body::-webkit-scrollbar-corner { background: var(--color-paper-2); }
+@supports (-moz-appearance: none) { .ledger-body { scrollbar-width: auto; scrollbar-gutter: stable both-edges; scrollbar-color: oklch(72% 0 0) var(--color-paper-2); } }
+.ledgers[data-expanded] .ledger-body { max-height: max(22rem, 75dvh); }
 .ledger-body .none { padding-block: var(--space-xs); }
 
 .hover-line { min-height: 1.5em; margin: 0; font: 400 var(--text-sm)/1.5 var(--font-outlier); color: var(--color-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -145,15 +155,24 @@
 .log { width: 100%; border-collapse: collapse; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .log thead { position: sticky; top: 0; z-index: var(--z-sticky); }
 .log th { padding: var(--space-3xs) var(--space-2xs); background: var(--color-paper); border-bottom: var(--rule-hair) solid var(--color-rule-2); font: 500 var(--text-sm)/1.3 var(--font-display); color: var(--color-muted); text-align: left; white-space: nowrap; }
+/* the sticky header row is a shade darker than the rows that scroll under it */
+.log thead th { background: var(--color-paper-3); }
 .log th.val, .log td.val, .log th.num, .log td.num { text-align: right; }
 .log tbody th { font-family: var(--font-outlier); font-weight: 400; color: var(--color-ink-2); position: sticky; left: 0; background: var(--color-paper); }
 .log td { padding: var(--space-3xs) var(--space-2xs); border-bottom: var(--rule-hair) solid var(--color-rule); font-family: var(--font-outlier); white-space: nowrap; color: var(--color-muted); }
+.log td.text-cell { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; color: var(--color-ink); font-weight: 500; }
 .log td.is-set { color: var(--color-ink); font-weight: 500; background: var(--color-accent-wash); }
 .log tr.log-row--start td, .log tr.log-row--start th { color: var(--color-muted); font-style: italic; }
 .log tr.log-row[data-step] { cursor: default; }
 /* hovering a step lights it in every table at once */
 .log tr.is-hover td, .log tr.is-hover th { background: var(--color-paper-3); color: var(--color-ink); box-shadow: inset 0 1px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent); }
 .log tr.is-hover td.is-set { background: var(--color-accent-wash); }
+/* the memory and stack maps highlight the row under the mouse even when no step wrote to it */
+@media (hover: hover) {
+  [data-ledger="bytes"] .log tr.log-row:hover td, [data-ledger="bytes"] .log tr.log-row:hover th,
+  [data-ledger="stack"] .log tr.log-row:hover td, [data-ledger="stack"] .log tr.log-row:hover th { background: var(--color-paper-3); color: var(--color-ink); box-shadow: inset 0 1px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent); }
+  [data-ledger="bytes"] .log tr.log-row:hover td.is-set, [data-ledger="stack"] .log tr.log-row:hover td.is-set { background: var(--color-accent-wash); }
+}
 /* the signature: an interrupt step is edged on the left */
 .log tr.log-row--irq th { box-shadow: inset 3px 0 0 var(--color-accent-deep); }
 .log tr.log-row--irq.is-hover th { box-shadow: inset 3px 0 0 var(--color-accent-deep), inset 0 1px 0 var(--color-accent), inset 0 -1px 0 var(--color-accent); }
@@ -269,24 +288,18 @@ a.key { display: inline-flex; align-items: center; text-decoration: none; }
 .lint-opts { font: 400 var(--text-sm)/1.4 var(--font-body); }
 .lint-checks { display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-md); padding-top: var(--space-xs); }
 
-/* ---- EduMIPS64: pipeline cycle diagram -------------------------------------- */
+/* ---- MIPS64: pipeline cycle diagram -------------------------------------- */
 
 .check { display: inline-flex; align-items: center; gap: var(--space-xs); font: 500 var(--text-sm)/1.2 var(--font-display); cursor: pointer; }
 .check input { width: 1.1rem; height: 1.1rem; accent-color: var(--color-accent); }
 .modebar .help { flex: 1 1 18rem; margin: 0; }
-/* every table takes the full width, one per row, and is as tall as you drag it (handle at its bottom-right corner) */
-.ledgers--mips { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: auto; }
-.ledgers--mips .ledger-body { flex: none; height: 13rem; min-height: 6rem; resize: vertical; }
-.ledgers--mips [data-ledger="pipeline"] .ledger-body { height: 20rem; }
+/* every table takes the full width, one per row (each one is as tall as you drag it, like the MSX88 ones) */
+.ledgers--mips { grid-template-columns: minmax(0, 1fr); }
 .var-name { color: var(--color-ink); font-weight: 500; }
 .var-vals { display: flex; flex-wrap: wrap; gap: var(--space-3xs) var(--space-sm); }
 .var-val { color: var(--color-ink); font-weight: 600; }
 .var-val.is-old { color: var(--color-muted); font-weight: 400; text-decoration: line-through; }
 .var-val.is-hover, .var-val.is-current { background: var(--color-accent-wash); box-shadow: inset 0 -2px 0 var(--color-accent); }
-/* the trace pane scrolls when the tables add up to more than the screen */
-@media (min-width: 60rem) {
-  .pane--trace:has(.ledgers--mips) { overflow-y: auto; }
-}
 .pipe { display: flex; flex-direction: column; gap: var(--space-xs); }
 .pipe-nav { display: flex; align-items: center; gap: var(--space-sm); }
 .pipe-legend { margin: 0; }

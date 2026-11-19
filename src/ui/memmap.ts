@@ -3,6 +3,11 @@ import type { TraceStep } from "../core/cpu";
 import type { Program } from "../core/types";
 import { pushedRange } from "./history";
 
+/** The source line that declares the data at `addr`, or undefined when no DB/DW covers it. */
+export function declLine(program: Program, addr: number): number | undefined {
+  return program.dataLines.find((d) => addr >= d.addr && addr < d.addr + d.size)?.line;
+}
+
 export interface ByteRow {
   addr: number;
   /** Data labels that point at this byte, joined with ", ". */
