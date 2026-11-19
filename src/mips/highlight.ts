@@ -4,7 +4,7 @@ import { FORMAT_OF, regNumber } from "./assembler";
 const TOKEN = /([#;][^\n]*)|("(?:[^"\\\n]|\\.)*"?|'[^'\n]*'?)|([.$A-Za-z_][\w.$]*)(:)?|(0[xX][0-9a-fA-F]+|\d+)/g;
 
 /**
- * Splits EduMIPS64 source into colourable tokens. They always join back into the exact source,
+ * Splits MIPS64 source into colourable tokens. They always join back into the exact source,
  * so the layer drawn from them lines up character for character with the textarea.
  */
 export function tokenizeMips(source: string): Token[] {

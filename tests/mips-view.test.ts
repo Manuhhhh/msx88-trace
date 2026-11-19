@@ -7,7 +7,7 @@ import { fmtValue, memoryRows, pipelineUpTo, pipelineWindow, memoryMap, register
 
 const sim = (src: string) => simulateMips(src);
 
-describe("EduMIPS64 highlight", () => {
+describe("MIPS64 highlight", () => {
   it("joins back into the exact source", () => {
     const src = '.data\nmsg: .asciiz "hi # there" # c\n.text\nmain: daddi $t0, r0, 0x10 ; x\n';
     expect(tokenizeMips(src).map((t) => t.text).join("")).toBe(src);
@@ -27,7 +27,7 @@ describe("EduMIPS64 highlight", () => {
   });
 });
 
-describe("EduMIPS64 table models", () => {
+describe("MIPS64 table models", () => {
   const res = sim("daddi r1, r0, 7\nnop\ndadd r2, r1, r1\nddiv r2, r1\nhalt");
 
   it("lists only the steps and registers that changed, in register order", () => {
@@ -121,7 +121,7 @@ describe("pipeline window", () => {
   });
 });
 
-describe("built-in EduMIPS64 examples", () => {
+describe("built-in MIPS64 examples", () => {
   for (const lang of ["en", "es"] as const) {
     for (const ex of mipsExamplesFor(lang)) {
       it(`"${ex.title}" (${lang}) assembles and halts`, () => {

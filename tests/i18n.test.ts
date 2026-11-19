@@ -85,7 +85,7 @@ describe("assembler and CPU messages in Spanish", () => {
   });
 });
 
-describe("EduMIPS64 messages", () => {
+describe("MIPS64 messages", () => {
   it("translate the assembler and CPU messages to Spanish", () => {
     expect(translateCore("Line 3: Undefined label loop", "es")).toBe("Línea 3: Etiqueta no definida loop");
     expect(translateCore("Line 2: dadd: r99 is not a register", "es")).toBe("Línea 2: dadd: r99 no es un registro");

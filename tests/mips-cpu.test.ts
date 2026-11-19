@@ -4,7 +4,7 @@ import { simulateMips } from "../src/mips/sim";
 const run = (src: string, maxSteps?: number) => simulateMips(src, { maxSteps });
 const r = (res: ReturnType<typeof run>, n: number) => res.cpu.regs[n];
 
-describe("EduMIPS64 CPU", () => {
+describe("MIPS64 CPU", () => {
   it("runs arithmetic and keeps r0 at zero", () => {
     const res = run("daddi r1, r0, 5\ndadd r2, r1, r1\ndaddi r0, r0, 9\nhalt");
     expect(res.reason).toBe("halted");

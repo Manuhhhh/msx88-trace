@@ -1,4 +1,4 @@
-/** Everything needed to reproduce an EduMIPS64 run; lives in the URL hash so a link shares it. */
+/** Everything needed to reproduce an MIPS64 run; lives in the URL hash so a link shares it. */
 export interface MipsShareState {
   source: string;
   maxSteps: number;

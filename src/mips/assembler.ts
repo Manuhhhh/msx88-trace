@@ -101,6 +101,8 @@ export interface MipsProgram {
   symbols: Map<string, MipsSym>;
   /** Source line of each data directive, by the first byte it fills (used by the trace to name memory). */
   dataLines: Map<number, number>;
+  /** Data that takes more than one byte (a word, a .space, ...): where each starts and how many bytes it spans. */
+  units: { addr: number; size: number }[];
   /** Bytes of data memory the program declares (the first free address after the last datum). */
   dataEnd: number;
   entry: number;
@@ -203,7 +205,7 @@ interface DataItem {
   args: string[];
 }
 
-/** Assembles EduMIPS64 source into a program image. Throws AsmError. */
+/** Assembles MIPS64 source into a program image. Throws AsmError. */
 export function assembleMips(source: string): MipsProgram {
   const symbols = new Map<string, MipsSym>();
   const instrs: MipsInstr[] = [];
@@ -277,6 +279,7 @@ export function assembleMips(source: string): MipsProgram {
 
   // Pass 2: data bytes, then operands.
   const data = new Uint8Array(DATA_SIZE);
+  const units: { addr: number; size: number }[] = [];
   for (const it of items) {
     dataLines.set(it.addr, it.line);
     let at = it.addr;
@@ -285,8 +288,12 @@ export function assembleMips(source: string): MipsProgram {
       for (const a of it.args) {
         const v = evalExpr(a, symbols, it.line);
         storeBytes(data, at, size, v);
+        if (size > 1) units.push({ addr: at, size });
         at += size;
       }
+    } else if (it.op === ".space") {
+      const n = Number(parseNumber(it.args[0]) ?? 0n);
+      if (n > 1) units.push({ addr: it.addr, size: n });
     } else if (it.op === ".ascii" || it.op === ".asciiz") {
       for (const a of it.args) {
         for (const byte of parseString(a, it.line)) data[at++] = byte;
@@ -304,7 +311,7 @@ export function assembleMips(source: string): MipsProgram {
     if (!sym || sym.kind !== "code") throw new AsmError(`Entry point ${entryLabel} is not a code label`, 1);
     entry = sym.value / 4;
   }
-  return { instrs, data, symbols, dataLines, dataEnd, entry };
+  return { instrs, data, symbols, dataLines, units, dataEnd, entry };
 }
 
 function alignTo(n: number, size: number): number {

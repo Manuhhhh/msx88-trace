@@ -10,7 +10,10 @@ import type { MipsShareState } from "../mips/share";
 import { simulateMips } from "../mips/sim";
 import type { MipsSimResult } from "../mips/sim";
 import { hex16, hex8 } from "./format";
-import { fmtValue, memoryMap, memoryRows, pipelineUpTo, pipelineWindow, registerTable, stepFacts, variableTable } from "../mips/view";
+import { fmtWide, getRadix, useRadixFor, wireRadix } from "./radix";
+import { groupMemory } from "./memgroup";
+import type { MemoryEntry } from "./memgroup";
+import { declLine, memoryMap, memoryRows, pipelineUpTo, pipelineWindow, registerTable, stepFacts, variableTable } from "../mips/view";
 import { wireArchSelect } from "./arch";
 import { h } from "./dom";
 import type { Child } from "./dom";
@@ -35,7 +38,7 @@ export function mountMipsApp(root: HTMLElement): void {
   root.innerHTML = `
     <div class="shell">
       <header class="topbar">
-        <a class="wordmark" href="?arch=mips" data-i18n-aria="mips.wordmark.label">EduMIPS64 Trace</a>
+        <a class="wordmark" href="?arch=mips" data-i18n-aria="mips.wordmark.label">MIPS64 Trace</a>
         <div class="topbar-actions flex items-center gap-(--space-sm)">
           <select id="lang" class="control lang-select" aria-label="Idioma / Language"></select>
           <select id="arch" class="control lang-select" data-i18n-aria="arch.label"></select>
@@ -94,6 +97,11 @@ export function mountMipsApp(root: HTMLElement): void {
             <div class="seg" role="group" data-i18n-aria="view.aria">
               <button type="button" id="mode-all" class="key key--quiet seg-btn" aria-pressed="true" data-i18n="view.all"></button>
               <button type="button" id="mode-step" class="key key--quiet seg-btn" aria-pressed="false" data-i18n="view.step"></button>
+            </div>
+            <div class="seg" role="group" data-i18n-aria="radix.aria">
+              <button type="button" class="key key--quiet seg-btn" data-radix="dec" aria-pressed="false">Dec</button>
+              <button type="button" class="key key--quiet seg-btn" data-radix="hex" aria-pressed="true">Hex</button>
+              <button type="button" class="key key--quiet seg-btn" data-radix="bin" aria-pressed="false">Bin</button>
             </div>
             <div id="stepper" class="stepper" hidden>
               <button type="button" id="st-reset" class="key key--sm" data-i18n="step.reset"></button>
@@ -368,16 +376,34 @@ export function mountMipsApp(root: HTMLElement): void {
     );
   }
 
+  // strings take one row with their first and last address; the toggle on the bytes table shows every byte instead
+  let groupStrings = true;
+
   function ledger(id: string, title: Key, hint: Key): HTMLElement {
+    const tools: HTMLElement[] = [];
+    if (id === "bytes") {
+      const btn = h("button", { type: "button", class: "key key--quiet ledger-btn", "data-act": "group", "aria-pressed": String(groupStrings) }, t(groupStrings ? "bytes.ungroup" : "bytes.group"));
+      btn.addEventListener("click", () => {
+        groupStrings = !groupStrings;
+        btn.textContent = t(groupStrings ? "bytes.ungroup" : "bytes.group");
+        btn.setAttribute("aria-pressed", String(groupStrings));
+        body("bytes").replaceChildren(bytesBody());
+        body("bytes").parentElement!.classList.toggle("is-empty", body("bytes").firstElementChild?.classList.contains("none") ?? false);
+      });
+      tools.push(h("span", { class: "ledger-tools" }, btn));
+    }
     return h(
       "section",
       { class: "ledger", "data-ledger": id },
-      h("div", { class: "ledger-head" }, h("h3", { class: "label-title" }, t(title)), h("span", { class: "label ledger-hint" }, t(hint))),
+      h("div", { class: "ledger-head" }, h("h3", { class: "label-title" }, t(title)), h("span", { class: "label ledger-hint" }, t(hint)), ...tools),
       h("div", { class: "ledger-body" }),
     );
   }
 
   const body = (id: string): HTMLElement => ledgersEl.querySelector<HTMLElement>(`[data-ledger="${id}"] .ledger-body`)!;
+
+  /** The value in the base that is not on screen (hex while decimal or binary shows), for the tooltip. */
+  const otherForm = (v: bigint): string => fmtWide(v, getRadix() === "hex" ? "dec" : "hex");
 
   /** The instruction's row header: its step number and text. */
   const stepHead = (step: number, text: string): HTMLElement =>
@@ -459,8 +485,7 @@ export function mountMipsApp(root: HTMLElement): void {
             ...tab.cols.map((c) => {
               const v = row.set.get(c);
               if (v === undefined) return h("td", { class: "val" });
-              const f = fmtValue(v);
-              return h("td", { class: "val is-set", title: f.hex }, f.dec);
+              return h("td", { class: "val is-set", title: otherForm(v) }, fmtWide(v));
             }),
           ),
         ),
@@ -473,8 +498,7 @@ export function mountMipsApp(root: HTMLElement): void {
     if (cols.length === 0) return none("mips.none.variables");
     // one row per memory location; its values sit in a single line, oldest first, and only the latest is not struck through
     const value = (v: bigint, tip: string, step?: number): HTMLElement => {
-      const f = fmtValue(v);
-      return h("span", { class: "var-val", title: `${f.hex}${tip}`, "data-step": step === undefined ? undefined : String(step) }, f.dec);
+      return h("span", { class: "var-val", title: `${otherForm(v)}${tip}`, "data-step": step === undefined ? undefined : String(step) }, fmtWide(v));
     };
     return h(
       "table",
@@ -498,7 +522,7 @@ export function mountMipsApp(root: HTMLElement): void {
           for (const v of vals.slice(0, -1)) v.classList.add("is-old");
           return h(
             "tr",
-            { class: "log-row" },
+            { class: "log-row", "data-decl": declOf(c.addr) },
             h("th", { scope: "row", class: "num", title: t("mips.col.varTip", { addr: c.addr, size: c.size }) }, `${c.addr} · 0x${c.addr.toString(16).toUpperCase()}`),
             h("td", { class: "var-name" }, c.name),
             h("td", {}, h("div", { class: "var-vals" }, ...vals)),
@@ -531,17 +555,43 @@ export function mountMipsApp(root: HTMLElement): void {
       h(
         "tbody",
         {},
-        ...m.rows.map((r) =>
-          h(
+        ...(groupStrings ? groupMemory(m.rows, result!.program.units, false) : m.rows.map((row): MemoryEntry<(typeof m.rows)[number]> => ({ kind: "byte", row }))).map((e) => {
+          if (e.kind === "text") {
+            const cls = e.changed ? "val is-set" : "val";
+            return h(
+              "tr",
+              { class: "log-row", "data-step": e.step === undefined ? undefined : String(e.step), "data-decl": declOf(e.start) },
+              h("th", { scope: "row", class: "num", title: `${e.start}–${e.end}` }, `${hex16(e.start)}H–${hex16(e.end)}H`),
+              h("td", { class: "var-name" }, e.label ?? ""),
+              h("td", { class: "text-cell", title: e.text }, e.text),
+              h("td", { class: cls }, t("bytes.count", { n: e.count })),
+              h("td", { class: cls }, ""),
+            );
+          }
+          if (e.kind === "unit") {
+            const cls = e.changed ? "val is-set" : "val";
+            const shown = e.value !== undefined ? `${e.value.toString(16).toUpperCase().padStart(e.size * 2, "0")}H` : t("bytes.count", { n: e.size });
+            return h(
+              "tr",
+              { class: "log-row", "data-step": e.step === undefined ? undefined : String(e.step), "data-decl": declOf(e.start) },
+              h("th", { scope: "row", class: "num", title: `${e.start}–${e.end}` }, `${hex16(e.start)}H–${hex16(e.end)}H`),
+              h("td", { class: "var-name" }, e.label ?? ""),
+              h("td", {}, ""),
+              h("td", { class: cls }, shown),
+              h("td", { class: cls }, e.value !== undefined ? e.value.toString(2).padStart(e.size * 8, "0") : ""),
+            );
+          }
+          const r = e.row;
+          return h(
             "tr",
-            { class: "log-row", "data-step": r.step === undefined ? undefined : String(r.step) },
+            { class: "log-row", "data-step": r.step === undefined ? undefined : String(r.step), "data-decl": declOf(r.addr) },
             h("th", { scope: "row", class: "num", title: String(r.addr) }, `${hex16(r.addr)}H`),
             h("td", { class: "var-name" }, r.label ?? ""),
             h("td", {}, r.char),
             h("td", { class: r.changed ? "val is-set" : "val" }, `${hex8(r.value)}H`),
             h("td", { class: r.changed ? "val is-set" : "val" }, r.bits),
-          ),
-        ),
+          );
+        }),
       ),
     );
     const more = m.total > m.rows.length ? h("p", { class: "help" }, t("mips.bytes.more", { shown: m.rows.length, total: m.total })) : null;
@@ -579,8 +629,8 @@ export function mountMipsApp(root: HTMLElement): void {
             h("td", {}, t(`mips.kind.${r.kind}`)),
             h("td", { class: "num", title: `0x${r.addr.toString(16).toUpperCase()}` }, String(r.addr)),
             h("td", { class: "num" }, String(r.size)),
-            h("td", { class: "val", title: r.before === undefined ? undefined : fmtValue(r.before).hex }, r.before === undefined ? "" : fmtValue(r.before).dec),
-            h("td", { class: "val is-set", title: fmtValue(r.after).hex }, fmtValue(r.after).dec),
+            h("td", { class: "val", title: r.before === undefined ? undefined : otherForm(r.before) }, r.before === undefined ? "" : fmtWide(r.before)),
+            h("td", { class: "val is-set", title: otherForm(r.after) }, fmtWide(r.after)),
           ),
         ),
       ),
@@ -601,11 +651,16 @@ export function mountMipsApp(root: HTMLElement): void {
     body("variables").replaceChildren(variablesBody());
     body("bytes").replaceChildren(bytesBody());
     body("memory").replaceChildren(memoryBody());
+    // a table with nothing to show is left out instead of sitting there empty
+    for (const el of ledgersEl.querySelectorAll<HTMLElement>(".ledger")) {
+      el.classList.toggle("is-empty", el.querySelector(".ledger-body")?.firstElementChild?.classList.contains("none") ?? false);
+    }
     for (const [id, [top, left]] of scroll) {
       body(id).scrollTop = top;
       body(id).scrollLeft = left;
     }
     hovered = 0;
+    hoveredDecl = 0;
     if (mode === "step" && pos > 0) {
       for (const r of ledgersEl.querySelectorAll(`[data-step="${pos}"]`)) {
         r.classList.add("is-current");
@@ -625,6 +680,7 @@ export function mountMipsApp(root: HTMLElement): void {
     view = "trace";
     pipeStart = 0;
     hovered = 0;
+    hoveredDecl = 0;
     stopPlay();
     pos = 0;
     pipeline = buildPipeline(res.steps, { forwarding: forwardingEl.checked });
@@ -662,17 +718,28 @@ export function mountMipsApp(root: HTMLElement): void {
 
   // hovering a step lights it in every table at once
   let hovered = 0;
-  function setHover(n: number): void {
-    if (n === hovered) return;
+  let hoveredDecl = 0;
+  /** The source line that declares the data at `addr`, as a row attribute. */
+  const declOf = (addr: number): string | undefined => {
+    const line = declLine(result!.program, addr);
+    return line === undefined ? undefined : String(line);
+  };
+
+  /** Hovering a row lights the instruction of its step; a variable's row lights the line that declares it instead. */
+  function setHover(n: number, decl = 0): void {
+    if (n === hovered && decl === hoveredDecl) return;
     hovered = n;
+    hoveredDecl = decl;
     for (const r of ledgersEl.querySelectorAll(".is-hover")) r.classList.remove("is-hover");
     if (n > 0) for (const r of ledgersEl.querySelectorAll(`[data-step="${n}"]`)) r.classList.add("is-hover");
-    hoverEl.textContent = n > 0 ? describeStep(n) : restText();
-    highlightLine(n > 0 ? lineOf(n) : restLine());
+    hoverEl.textContent = decl > 0 ? t("hover.decl", { line: decl }) : n > 0 ? describeStep(n) : restText();
+    highlightLine(decl > 0 ? decl : n > 0 ? lineOf(n) : restLine());
   }
   ledgersEl.addEventListener("mouseover", (e) => {
-    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-step]");
-    setHover(row ? Number(row.dataset.step) : 0);
+    const target = e.target as HTMLElement;
+    const row = target.closest<HTMLElement>("[data-step]");
+    const decl = target.closest<HTMLElement>("[data-decl]");
+    setHover(row ? Number(row.dataset.step) : 0, decl ? Number(decl.dataset.decl) : 0);
   });
   ledgersEl.addEventListener("mouseleave", () => setHover(0));
 
@@ -736,6 +803,8 @@ export function mountMipsApp(root: HTMLElement): void {
     updateStepper();
   }
 
+  useRadixFor("mips");
+  wireRadix(viewbarEl, () => paintLedgers());
   modeAllBtn.addEventListener("click", () => setMode("all"));
   modeStepBtn.addEventListener("click", () => setMode("step"));
   stResetBtn.addEventListener("click", () => {

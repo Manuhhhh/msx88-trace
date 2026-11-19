@@ -4,7 +4,7 @@ import { AsmError } from "../src/core/types";
 
 const asm = (src: string) => assembleMips(src);
 
-describe("EduMIPS64 assembler", () => {
+describe("MIPS64 assembler", () => {
   it("assembles registers in r5, $5 and ABI spellings", () => {
     expect(regNumber("r31")).toBe(31);
     expect(regNumber("$7")).toBe(7);
@@ -109,5 +109,25 @@ describe("EduMIPS64 assembler", () => {
 
   it("reports the source line in errors", () => {
     expect(() => asm("nop\nnop\nfoo")).toThrow("Line 3:");
+  });
+});
+
+describe("data units", () => {
+  it("records every datum that spans several bytes, and leaves single bytes out", () => {
+    const p = asm(".data\nb: .byte 1\nw: .word 5\nh: .word16 1, 2\nbuf: .space 16\ns: .asciiz \"hi\"\n.code\nsyscall 0\n");
+    expect(p.units).toEqual([
+      { addr: 8, size: 8 },
+      { addr: 16, size: 2 },
+      { addr: 18, size: 2 },
+      { addr: 20, size: 16 },
+    ]);
+  });
+});
+
+describe("declaration lines", () => {
+  it("finds the source line of the directive that fills an address", async () => {
+    const { declLine } = await import("../src/mips/view");
+    const p = asm(".data\nmsg: .asciiz \"hi\"\nx: .word 5\n.code\nsyscall 0\n");
+    expect([declLine(p, 0), declLine(p, 2), declLine(p, 8), declLine(p, 16)]).toEqual([2, 2, 3, undefined]);
   });
 });

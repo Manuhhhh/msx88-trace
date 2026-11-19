@@ -9,7 +9,7 @@ function at(marked: string, manual = false) {
 }
 const labels = (marked: string, manual = false): string[] => at(marked, manual)?.items.map((i) => i.label) ?? [];
 
-describe("EduMIPS64 suggestions", () => {
+describe("MIPS64 suggestions", () => {
   it("offers instructions for a word at the start of an indented statement", () => {
     expect(labels(".text\n        dsl|")).toEqual(["dsll", "dsllv"]);
     expect(labels(".text\n        bn|")).toEqual(["bne", "bnez"]);

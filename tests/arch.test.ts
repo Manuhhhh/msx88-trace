@@ -17,7 +17,7 @@ describe("architecture selection", () => {
   });
 });
 
-describe("EduMIPS64 share state", () => {
+describe("MIPS64 share state", () => {
   const state = { source: "daddi r1, r0, 1 ; ñ\nhalt", maxSteps: 500, forwarding: true };
 
   it("round-trips unicode source through the URL encoding", () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assembleMips, FORMAT_OF } from "../src/mips/assembler";
 import { MIPS_MANUAL, MIPS_SYSCALLS, mipsManualDoc } from "../src/ui/mips-manual";
 
-describe("EduMIPS64 instruction manual", () => {
+describe("MIPS64 instruction manual", () => {
   const entries = MIPS_MANUAL.flatMap((g) => g.entries);
 
   it("documents every instruction the assembler accepts, once", () => {

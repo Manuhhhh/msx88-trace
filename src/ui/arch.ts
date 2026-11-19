@@ -2,7 +2,7 @@ export type Arch = "msx88" | "mips";
 
 export const ARCHS: readonly { id: Arch; name: string }[] = [
   { id: "msx88", name: "MSX88" },
-  { id: "mips", name: "EduMIPS64" },
+  { id: "mips", name: "MIPS64" },
 ];
 
 /** The architecture a URL asks for (`?arch=mips`); anything else is null. */

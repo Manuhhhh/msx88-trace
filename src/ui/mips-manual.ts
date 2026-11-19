@@ -447,7 +447,7 @@ const DIRECTIVES: { syntax: string; effect: L }[] = [
 
 const TEXT = {
   en: {
-    intro: "Reference for the EduMIPS64 instructions this simulator runs: what each one does and an example that assembles as written.",
+    intro: "Reference for the MIPS64 instructions this simulator runs: what each one does and an example that assembles as written.",
     note: "Data is aligned to its size: a .word starts at a multiple of 8, a .word32 at a multiple of 4, and so on.",
     syntax: "Syntax",
     example: "Example",
@@ -458,7 +458,7 @@ const TEXT = {
     syscallsIntro: "These syscall numbers are answered by the simulator itself.",
   },
   es: {
-    intro: "Referencia de las instrucciones de EduMIPS64 que ejecuta este simulador: qué hace cada una y un ejemplo que ensambla tal cual.",
+    intro: "Referencia de las instrucciones de MIPS64 que ejecuta este simulador: qué hace cada una y un ejemplo que ensambla tal cual.",
     note: "Los datos se alinean a su tamaño: un .word empieza en un múltiplo de 8, un .word32 en un múltiplo de 4, y así.",
     syntax: "Sintaxis",
     example: "Ejemplo",
@@ -474,7 +474,7 @@ const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;"
 const pre = (s: string): string => `<pre><code>${esc(s)}</code></pre>`;
 const entryId = (e: MipsManualEntry): string => e.covers[0];
 
-/** The EduMIPS64 manual as documentation in the chosen language. Every text is fixed in this file, so it is safe to inject. */
+/** The MIPS64 manual as documentation in the chosen language. Every text is fixed in this file, so it is safe to inject. */
 export function mipsManualDoc(lang: Lang): ManualDoc {
   const x = TEXT[lang];
   const nav: string[] = [];
