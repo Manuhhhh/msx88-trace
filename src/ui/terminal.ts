@@ -44,7 +44,7 @@ export function terminalView(steps: readonly TermStep[], upTo: number, lines: re
 
 /** The closing line of a run: how it ended. */
 export interface TermEnd {
-  kind: "halted" | "max-steps" | "error";
+  kind: "halted" | "max-steps" | "error" | "stopped";
   text: string;
 }
 
@@ -52,6 +52,7 @@ export interface TermEnd {
 export function terminalEnd(reason: string, error: string | undefined, upTo: number, total: number): TermEnd | undefined {
   if (upTo < total) return undefined;
   if (reason === "halted") return { kind: "halted", text: t("stop.halted") };
+  if (reason === "stopped") return { kind: "stopped", text: t("stop.stopped") };
   if (reason === "max-steps") return { kind: "max-steps", text: t("stop.max-steps") };
   if (reason === "error") return { kind: "error", text: error ? `${t("stop.error")}: ${translateCore(error)}` : t("stop.error") };
   return undefined;

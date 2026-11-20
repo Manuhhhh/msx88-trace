@@ -1,7 +1,12 @@
+import { liveRate } from "../ui/live";
+
 /** Everything needed to reproduce an MIPS64 run; lives in the URL hash so a link shares it. */
 export interface MipsShareState {
   source: string;
   maxSteps: number;
+  /** Run without a step limit, live and throttled to `stepsPerSecond`. Left out when off. */
+  unlimited?: boolean;
+  stepsPerSecond?: number;
   forwarding: boolean;
 }
 
@@ -28,7 +33,8 @@ export function decodeMipsState(encoded: string): MipsShareState | null {
     const s = raw as Record<string, unknown>;
     if (typeof s.source !== "string" || typeof s.forwarding !== "boolean") return null;
     if (typeof s.maxSteps !== "number" || !Number.isInteger(s.maxSteps) || s.maxSteps < 1) return null;
-    return { source: s.source, maxSteps: s.maxSteps, forwarding: s.forwarding };
+    const live = s.unlimited === true ? { unlimited: true, stepsPerSecond: liveRate(s.stepsPerSecond) } : {};
+    return { source: s.source, maxSteps: s.maxSteps, forwarding: s.forwarding, ...live };
   } catch {
     return null;
   }

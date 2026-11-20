@@ -108,7 +108,7 @@ function fromAsmError(e: AsmError, source: string): Diagnostic {
 }
 
 /**
- * Assembles the source without running it and reports the error `Run trace` would show, so a mistake
+ * Assembles the source without running it and reports the error `Run` would show, so a mistake
  * is visible while typing. The assembler stops at the first error, so there is at most one diagnostic.
  */
 export function diagnose(source: string): Diagnostic | null {

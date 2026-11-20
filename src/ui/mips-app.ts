@@ -7,7 +7,7 @@ import { buildPipeline } from "../mips/pipeline";
 import type { Pipeline, PipelineRow } from "../mips/pipeline";
 import { decodeMipsState, encodeMipsState } from "../mips/share";
 import type { MipsShareState } from "../mips/share";
-import { simulateMips } from "../mips/sim";
+import { MipsSimulation, simulateMips } from "../mips/sim";
 import type { MipsSimResult } from "../mips/sim";
 import { hex16, hex8 } from "./format";
 import { fmtWide, getRadix, useRadixFor, wireRadix } from "./radix";
@@ -29,6 +29,8 @@ import { revealCurrent } from "./reveal";
 import { createSuggest } from "./suggest";
 import { createTextMetrics } from "./textpos";
 import { buildTerminal, terminalEnd, terminalView } from "./terminal";
+import { DEFAULT_RATE, MAX_RATE, MIN_RATE, drive, liveRate } from "./live";
+import type { Driver } from "./live";
 import type { Terminal } from "./terminal";
 
 /** How many instructions the cycle diagram draws at a time: it is steps x cycles, so a long run needs paging. */
@@ -49,7 +51,11 @@ export function mountMipsApp(root: HTMLElement): void {
             <select id="example" class="control"></select>
           </label>
           <a id="manual-open" class="key" href="./manual.html?arch=mips" target="_blank" rel="noopener" data-i18n="manual.open"></a>
-          <button type="button" id="run" class="key key--primary" data-i18n="run"></button>
+          <button type="button" id="stop" class="key" data-i18n="live.stop" hidden></button>
+          <button type="button" id="run" class="key key--primary key--icon">
+            <svg class="icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor" /></svg>
+            <span data-i18n="run"></span>
+          </button>
         </div>
       </header>
       <main class="workspace">
@@ -80,6 +86,14 @@ export function mountMipsApp(root: HTMLElement): void {
               <label class="field flex flex-col gap-(--space-3xs)">
                 <span class="label" data-i18n="settings.max"></span>
                 <input id="max" class="control" type="number" name="max-steps" min="1" max="20000" inputmode="numeric" />
+              </label>
+              <label class="field-inline flex items-center gap-(--space-xs)">
+                <input id="nolimit" type="checkbox" />
+                <span class="label" data-i18n="settings.unlimited"></span>
+              </label>
+              <label id="rate-field" class="field flex flex-col gap-(--space-3xs)" hidden>
+                <span class="label" data-i18n="settings.rate"></span>
+                <input id="rate" class="control" type="number" name="steps-per-second" min="${MIN_RATE}" max="${MAX_RATE}" inputmode="numeric" />
               </label>
             </div>
           </details>
@@ -128,6 +142,10 @@ export function mountMipsApp(root: HTMLElement): void {
   const q = <T extends HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!;
   const sourceEl = q<HTMLTextAreaElement>("source");
   const maxEl = q<HTMLInputElement>("max");
+  const noLimitEl = q<HTMLInputElement>("nolimit");
+  const rateEl = q<HTMLInputElement>("rate");
+  const rateFieldEl = q<HTMLElement>("rate-field");
+  const stopEl = q<HTMLButtonElement>("stop");
   const forwardingEl = q<HTMLInputElement>("forwarding");
   const regionEl = q<HTMLDivElement>("region");
   const termEl = q<HTMLDivElement>("term");
@@ -159,6 +177,9 @@ export function mountMipsApp(root: HTMLElement): void {
 
   let result: MipsSimResult | null = null;
   let terminal: Terminal | null = null;
+  /** The run in progress when there is no step limit: it advances a little at a time instead of all at once. */
+  let sim: MipsSimulation | null = null;
+  let driver: Driver | null = null;
   let pipeline: Pipeline | null = null;
   let pipeStart = 0;
   let view: "empty" | "error" | "trace" = "empty";
@@ -284,12 +305,23 @@ export function mountMipsApp(root: HTMLElement): void {
       source: sourceEl.value,
       maxSteps: Number.isFinite(max) ? Math.min(20000, Math.max(1, max)) : 2000,
       forwarding: forwardingEl.checked,
+      ...(noLimitEl.checked ? { unlimited: true, stepsPerSecond: liveRate(rateEl.value) } : {}),
     };
   }
+
+  /** With no step limit the step count is moot and the pace takes its place. */
+  function syncLimit(): void {
+    maxEl.disabled = noLimitEl.checked;
+    rateFieldEl.hidden = !noLimitEl.checked;
+  }
+  noLimitEl.addEventListener("change", syncLimit);
 
   function writeState(s: MipsShareState): void {
     sourceEl.value = s.source;
     maxEl.value = String(s.maxSteps);
+    noLimitEl.checked = s.unlimited === true;
+    rateEl.value = String(s.stepsPerSecond ?? DEFAULT_RATE);
+    syncLimit();
     forwardingEl.checked = s.forwarding;
     lintView.now();
   }
@@ -348,7 +380,7 @@ export function mountMipsApp(root: HTMLElement): void {
 
   function buildChrome(res: MipsSimResult): void {
     const children: Child[] = [];
-    if (res.reason !== "halted") {
+    if (res.reason !== "halted" && res.reason !== "running") {
       const reason = t(`stop.${res.reason}`);
       children.push(
         h(
@@ -797,6 +829,7 @@ export function mountMipsApp(root: HTMLElement): void {
 
   /** No trace to step through: stop any playback and tuck the controls away. */
   function leaveStepping(): void {
+    endLive();
     stopPlay();
     pos = 0;
     viewbarEl.hidden = true;
@@ -853,7 +886,41 @@ export function mountMipsApp(root: HTMLElement): void {
 
   // ---- run -------------------------------------------------------------------
 
+  /** Drops the live run, if any: its timer and the Stop button. */
+  function endLive(): void {
+    driver?.halt();
+    driver = null;
+    sim = null;
+    stopEl.hidden = true;
+  }
+
+  /** One live batch of steps has run: show how far it got, or close the trace when the run ended. */
+  function liveTick(): void {
+    if (!sim) return;
+    const now = sim.result();
+    result = now;
+    pipeline = buildPipeline(now.steps, { forwarding: forwardingEl.checked });
+    if (sim.status === "running") {
+      if (mode === "all") paintLedgers();
+      paintTerminal();
+      paintSummary();
+      updateStepper();
+      return;
+    }
+    endLive();
+    buildChrome(now);
+    paintLedgers();
+    hoverEl.textContent = restText();
+    updateStepper();
+  }
+
+  stopEl.addEventListener("click", () => {
+    sim?.stop();
+    liveTick();
+  });
+
   function run(): void {
+    endLive();
     const state = readState();
     history.replaceState(null, "", `${location.pathname}${location.search}#${encodeMipsState(state)}`);
     if (state.source.trim() === "") {
@@ -861,7 +928,15 @@ export function mountMipsApp(root: HTMLElement): void {
       return;
     }
     try {
-      renderTrace(simulateMips(state.source, { maxSteps: state.maxSteps }));
+      if (state.unlimited) {
+        const live = new MipsSimulation(state.source, { maxSteps: Infinity });
+        sim = live;
+        renderTrace(live.result());
+        stopEl.hidden = false;
+        driver = drive(live, state.stepsPerSecond ?? DEFAULT_RATE, liveTick);
+      } else {
+        renderTrace(simulateMips(state.source, { maxSteps: state.maxSteps }));
+      }
       if (window.matchMedia("(max-width: 59.99rem)").matches) {
         root.querySelector("#h-trace")?.scrollIntoView({ block: "start" });
       }
