@@ -24,8 +24,8 @@
   .workspace { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-rows: auto; align-items: start; }
   /* only the page scrolls: the source stays in view while the trace tables run down the page */
   .pane--source { overflow-x: hidden; overflow-y: auto; position: sticky; top: var(--space-lg); height: calc(100dvh - 2 * var(--space-lg)); }
-  /* the terminal sits under the editor: let the editor give way before the settings below get cut off */
-  .pane--source .editor { min-height: 14rem; }
+  /* the editor keeps one height whatever is below it (interrupt requests, terminal output): the pane scrolls instead */
+  .pane--source .editor { flex: none; min-height: 0; height: clamp(14rem, calc(100dvh - 30rem), 40rem); }
   .pane--source .settings-body { max-height: 40dvh; overflow-y: auto; }
 }
 
