@@ -18,6 +18,8 @@ import { createLineHighlight } from "./linehl";
 import { revealCurrent } from "./reveal";
 import { createSuggest } from "./suggest";
 import { createTextMetrics } from "./textpos";
+import { buildTerminal, terminalEnd, terminalView } from "./terminal";
+import type { Terminal } from "./terminal";
 import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
 import type { Key, Lang } from "./i18n";
@@ -74,6 +76,7 @@ export function mountApp(root: HTMLElement): void {
                 placeholder="ORG 2000H&#10;MOV AX, 5&#10;INT 0&#10;END"></textarea>
             </div>
           </div>
+          <div id="term" class="term-slot"></div>
           <ul id="lint" class="lint-list" role="status" hidden></ul>
           <details id="lint-opts" class="lint-opts">
             <summary class="label-title" data-i18n="lint.options"></summary>
@@ -84,10 +87,6 @@ export function mountApp(root: HTMLElement): void {
             <summary id="settings-label" class="label-title"></summary>
             <div class="settings-body">
               <div class="grid gap-(--space-sm) sm:grid-cols-2">
-                <label class="field flex flex-col gap-(--space-3xs)">
-                  <span class="label" data-i18n="settings.input"></span>
-                  <input id="input" class="control" type="text" name="input" autocomplete="off" />
-                </label>
                 <label class="field flex flex-col gap-(--space-3xs)">
                   <span class="label" data-i18n="settings.max"></span>
                   <input id="max" class="control" type="number" name="max-steps" min="1" max="20000" inputmode="numeric" />
@@ -158,10 +157,10 @@ export function mountApp(root: HTMLElement): void {
 
   const q = <T extends HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!;
   const sourceEl = q<HTMLTextAreaElement>("source");
-  const inputEl = q<HTMLInputElement>("input");
   const maxEl = q<HTMLInputElement>("max");
   const eventsEl = q<HTMLOListElement>("events");
   const regionEl = q<HTMLDivElement>("region");
+  const termEl = q<HTMLDivElement>("term");
   const ledgersEl = q<HTMLDivElement>("ledgers");
   const hoverEl = q<HTMLParagraphElement>("hover");
   const gutterEl = q<HTMLPreElement>("gutter");
@@ -198,6 +197,9 @@ export function mountApp(root: HTMLElement): void {
   const suggestStatusEl = q<HTMLParagraphElement>("suggest-status");
 
   let result: SimResult | null = null;
+  /** The lines typed into the terminal; together they are the buffer INT 6 reads one character at a time. */
+  let typed: string[] = [];
+  let terminal: Terminal | null = null;
   // what the trace area currently shows, so a language change can redraw it
   let view: "empty" | "error" | "trace" = "empty";
   let lastError: AsmError | null = null;
@@ -350,7 +352,7 @@ export function mountApp(root: HTMLElement): void {
   function writeState(s: ShareState): void {
     sourceEl.value = s.source;
     syncGutter();
-    inputEl.value = s.input;
+    typed = s.input === "" ? [] : [s.input];
     maxEl.value = String(s.maxSteps);
     eventsEl.replaceChildren();
     for (const ev of s.events) addEventRow(ev);
@@ -368,7 +370,7 @@ export function mountApp(root: HTMLElement): void {
     const max = Math.floor(Number(maxEl.value));
     return {
       source: sourceEl.value,
-      input: inputEl.value,
+      input: typed.join(""),
       maxSteps: Number.isFinite(max) ? Math.min(20000, Math.max(1, max)) : 2000,
       events,
     };
@@ -387,6 +389,8 @@ export function mountApp(root: HTMLElement): void {
     setSummary();
     hoverEl.textContent = "";
     ledgersEl.replaceChildren();
+    termEl.replaceChildren();
+    terminal = null;
     const load = h("button", { type: "button", class: "key" }, t("empty.load"));
     load.addEventListener("click", () => loadExample("f10"));
     regionEl.replaceChildren(
@@ -408,6 +412,8 @@ export function mountApp(root: HTMLElement): void {
     setSummary();
     hoverEl.textContent = "";
     ledgersEl.replaceChildren();
+    termEl.replaceChildren();
+    terminal = null;
     regionEl.replaceChildren(
       h(
         "div",
@@ -858,9 +864,34 @@ export function mountApp(root: HTMLElement): void {
     const before = pos;
     pos = Math.min(total(), Math.max(0, n));
     paintTables(mode === "step" && pos > before);
+    paintTerminal();
     hoverEl.textContent = restText();
     highlightLine(restLine());
     updateStepper();
+  }
+
+  /** Redraws the terminal for the steps shown now. */
+  function paintTerminal(): void {
+    if (!result || !terminal) return;
+    const upTo = mode === "step" ? pos : result.steps.length;
+    terminal.paint(terminalView(result.steps, upTo, typed), terminalEnd(result.reason, result.error, upTo, result.steps.length));
+  }
+
+  /** Adds a typed line to the input buffer and runs again; a program that was waiting carries on from where it stopped. */
+  function sendInput(line: string): void {
+    const wasWaiting = result?.reason === "waiting-input";
+    const keep = pos;
+    typed.push(line);
+    run();
+    if (wasWaiting) goTo(total());
+    else goTo(keep);
+    terminal?.focus();
+  }
+
+  function clearInput(): void {
+    typed = [];
+    run();
+    terminal?.focus();
   }
 
   function setMode(next: Mode): void {
@@ -933,7 +964,8 @@ export function mountApp(root: HTMLElement): void {
   /** The notice, the screen output, the four ledger frames and the summary line of a finished run. */
   function buildTraceChrome(res: SimResult): void {
     const children: Child[] = [];
-    if (res.reason !== "halted") {
+    // a program paused on INT 6 is not an event to announce: the terminal's prompt is the cue
+    if (res.reason !== "halted" && res.reason !== "waiting-input") {
       const reason = t(`stop.${res.reason}`);
       children.push(
         h(
@@ -943,10 +975,10 @@ export function mountApp(root: HTMLElement): void {
         ),
       );
     }
-    if (res.output) {
-      children.push(h("div", { class: "screen graphite cut" }, h("span", { class: "label" }, t("screen.output")), h("pre", {}, res.output)));
-    }
+    terminal = buildTerminal({ onSend: sendInput, onClear: clearInput });
+    termEl.replaceChildren(terminal.el);
     regionEl.replaceChildren(...children.filter((c): c is Node => c !== null && c !== undefined && c !== false));
+    paintTerminal();
 
     ledgersEl.replaceChildren(
       ledger("registers", "hint.values"),
@@ -962,7 +994,7 @@ export function mountApp(root: HTMLElement): void {
       ...[
         t("summary.steps", { n: res.steps.length }),
         irqs > 0 ? plural("summary.interrupts", irqs) : "",
-        t(`stop.${res.reason}`),
+        res.reason === "waiting-input" ? "" : t(`stop.${res.reason}`),
       ].filter(Boolean),
     );
   }
@@ -989,7 +1021,7 @@ export function mountApp(root: HTMLElement): void {
     }
     try {
       renderTrace(
-        simulate(state.source, { input: state.input, maxSteps: state.maxSteps, irqEvents: state.events }),
+        simulate(state.source, { input: state.input, waitForInput: true, maxSteps: state.maxSteps, irqEvents: state.events }),
       );
       // On a phone the trace sits below the editor: bring it into view.
       if (window.matchMedia("(max-width: 59.99rem)").matches) {
