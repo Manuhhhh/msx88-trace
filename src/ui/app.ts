@@ -202,6 +202,7 @@ export function mountApp(root: HTMLElement): void {
   const lintTipEl = q<HTMLDivElement>("lint-tip");
   const hlCodeEl = q<HTMLElement>("hl-code");
   const settingsLabel = q<HTMLElement>("settings-label");
+  const addEventBtn = q<HTMLButtonElement>("add-event");
   const summaryEl = q<HTMLParagraphElement>("summary");
   const exampleEl = q<HTMLSelectElement>("example");
   const langEl = q<HTMLSelectElement>("lang");
@@ -1192,7 +1193,12 @@ export function mountApp(root: HTMLElement): void {
     if (e.target === helpEl) helpEl.close();
   });
   q("run").addEventListener("click", run);
-  q("add-event").addEventListener("click", () => addEventRow({ line: 0, step: 10 }));
+  // a new request grows the settings body and pushes the button out of the scrolling pane:
+  // scroll the pane to its end so the button can be pressed again without scrolling by hand
+  addEventBtn.addEventListener("click", () => {
+    addEventRow({ line: 0, step: 10 });
+    addEventBtn.scrollIntoView({ block: "end", inline: "nearest" });
+  });
   exampleEl.addEventListener("change", () => {
     if (exampleEl.value) loadExample(exampleEl.value);
   });
