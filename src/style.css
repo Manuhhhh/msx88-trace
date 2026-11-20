@@ -28,9 +28,10 @@
   .pane--source .editor { flex: none; min-height: 0; height: clamp(14rem, calc(100dvh - 30rem), 40rem); }
   /* nothing in the pane gives way: the editor, the terminal and the settings keep their size and the pane scrolls */
   .pane--source > * { flex-shrink: 0; }
-  /* the rule between the source and the trace, in the middle of the gap between them */
-  .pane--trace { position: relative; }
-  .shell:not([data-layout="wide"]) .pane--trace::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--space-lg) / -2); width: 2px; margin-left: -1px; background: var(--color-rule-2); }
+  /* the rule between the source and the trace: it stays put in the middle of the gap while the page scrolls, like the source pane beside it */
+  .shell:not([data-layout="wide"]) .pane--source { grid-column: 1; grid-row: 1; }
+  .shell:not([data-layout="wide"]) .pane--trace { grid-column: 2; grid-row: 1; }
+  .shell:not([data-layout="wide"]) .workspace::before { content: ""; grid-column: 1; grid-row: 1; justify-self: end; align-self: start; position: sticky; top: var(--space-lg); z-index: 1; width: 2px; height: calc(100dvh - 2 * var(--space-lg)); translate: calc(var(--space-lg) / 2 - 1px) 0; background: var(--color-rule-2); pointer-events: none; }
 }
 
 .pane-title { font: 600 var(--text-xl)/1.1 var(--font-display); letter-spacing: var(--tracking-display); }
