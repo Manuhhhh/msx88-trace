@@ -1,4 +1,4 @@
-import { simulate } from "../core/simulate";
+import { Simulation, simulate } from "../core/simulate";
 import type { IrqEvent, SimResult } from "../core/simulate";
 import { AsmError } from "../core/types";
 import { wireArchSelect } from "./arch";
@@ -19,6 +19,8 @@ import { revealCurrent } from "./reveal";
 import { createSuggest } from "./suggest";
 import { createTextMetrics } from "./textpos";
 import { buildTerminal, terminalEnd, terminalView } from "./terminal";
+import { DEFAULT_RATE, MAX_RATE, MIN_RATE, drive, liveRate } from "./live";
+import type { Driver } from "./live";
 import type { Terminal } from "./terminal";
 import type { CellSeries, Series } from "./history";
 import { LANGS, getLang, plural, setLang, t, translateCore } from "./i18n";
@@ -56,7 +58,11 @@ export function mountApp(root: HTMLElement): void {
           <span id="script-status" class="label" role="status"></span>
           <button type="button" id="help-open" class="key" aria-haspopup="dialog" data-i18n="help.open"></button>
           <a id="manual-open" class="key" href="./manual.html" target="_blank" rel="noopener" data-i18n="manual.open"></a>
-          <button type="button" id="run" class="key key--primary" data-i18n="run"></button>
+          <button type="button" id="stop" class="key" data-i18n="live.stop" hidden></button>
+          <button type="button" id="run" class="key key--primary key--icon">
+            <svg class="icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor" /></svg>
+            <span data-i18n="run"></span>
+          </button>
         </div>
       </header>
       <main class="workspace">
@@ -90,6 +96,14 @@ export function mountApp(root: HTMLElement): void {
                 <label class="field flex flex-col gap-(--space-3xs)">
                   <span class="label" data-i18n="settings.max"></span>
                   <input id="max" class="control" type="number" name="max-steps" min="1" max="20000" inputmode="numeric" />
+                </label>
+                <label class="field-inline flex items-center gap-(--space-xs)">
+                  <input id="nolimit" type="checkbox" />
+                  <span class="label" data-i18n="settings.unlimited"></span>
+                </label>
+                <label id="rate-field" class="field flex flex-col gap-(--space-3xs)" hidden>
+                  <span class="label" data-i18n="settings.rate"></span>
+                  <input id="rate" class="control" type="number" name="steps-per-second" min="${MIN_RATE}" max="${MAX_RATE}" inputmode="numeric" />
                 </label>
               </div>
               <fieldset class="events">
@@ -158,6 +172,10 @@ export function mountApp(root: HTMLElement): void {
   const q = <T extends HTMLElement>(id: string): T => root.querySelector<T>(`#${id}`)!;
   const sourceEl = q<HTMLTextAreaElement>("source");
   const maxEl = q<HTMLInputElement>("max");
+  const noLimitEl = q<HTMLInputElement>("nolimit");
+  const rateEl = q<HTMLInputElement>("rate");
+  const rateFieldEl = q<HTMLElement>("rate-field");
+  const stopEl = q<HTMLButtonElement>("stop");
   const eventsEl = q<HTMLOListElement>("events");
   const regionEl = q<HTMLDivElement>("region");
   const termEl = q<HTMLDivElement>("term");
@@ -200,6 +218,9 @@ export function mountApp(root: HTMLElement): void {
   /** The lines typed into the terminal; together they are the buffer INT 6 reads one character at a time. */
   let typed: string[] = [];
   let terminal: Terminal | null = null;
+  /** The run in progress when there is no step limit: it advances a little at a time instead of all at once. */
+  let sim: Simulation | null = null;
+  let driver: Driver | null = null;
   // what the trace area currently shows, so a language change can redraw it
   let view: "empty" | "error" | "trace" = "empty";
   let lastError: AsmError | null = null;
@@ -349,11 +370,21 @@ export function mountApp(root: HTMLElement): void {
     updateSettingsLabel();
   }
 
+  /** With no step limit the step count is moot and the pace takes its place. */
+  function syncLimit(): void {
+    maxEl.disabled = noLimitEl.checked;
+    rateFieldEl.hidden = !noLimitEl.checked;
+  }
+  noLimitEl.addEventListener("change", syncLimit);
+
   function writeState(s: ShareState): void {
     sourceEl.value = s.source;
     syncGutter();
     typed = s.input === "" ? [] : [s.input];
     maxEl.value = String(s.maxSteps);
+    noLimitEl.checked = s.unlimited === true;
+    rateEl.value = String(s.stepsPerSecond ?? DEFAULT_RATE);
+    syncLimit();
     eventsEl.replaceChildren();
     for (const ev of s.events) addEventRow(ev);
     updateSettingsLabel();
@@ -372,6 +403,7 @@ export function mountApp(root: HTMLElement): void {
       source: sourceEl.value,
       input: typed.join(""),
       maxSteps: Number.isFinite(max) ? Math.min(20000, Math.max(1, max)) : 2000,
+      ...(noLimitEl.checked ? { unlimited: true, stepsPerSecond: liveRate(rateEl.value) } : {}),
       events,
     };
   }
@@ -879,6 +911,14 @@ export function mountApp(root: HTMLElement): void {
 
   /** Adds a typed line to the input buffer and runs again; a program that was waiting carries on from where it stopped. */
   function sendInput(line: string): void {
+    if (sim) {
+      typed.push(line);
+      sim.feed(line);
+      driver?.resume();
+      updateSummary(sim.result());
+      terminal?.focus();
+      return;
+    }
     const wasWaiting = result?.reason === "waiting-input";
     const keep = pos;
     typed.push(line);
@@ -890,6 +930,16 @@ export function mountApp(root: HTMLElement): void {
 
   /** F10 pressed right now: the interrupt is raised before the next step, so a program waiting on INT 6 serves it and keeps waiting. */
   function pressF10(): void {
+    if (sim) {
+      // live: it is pressed now, so it goes in before the next step the run takes
+      const ev = { line: 0, step: sim.steps.length + 1 };
+      addEventRow(ev);
+      sim.addEvent(ev);
+      sim.resume();
+      driver?.resume();
+      terminal?.focus();
+      return;
+    }
     if (!result) return;
     const upTo = mode === "step" ? pos : result.steps.length;
     const atEnd = result.reason === "waiting-input" && upTo >= result.steps.length;
@@ -918,6 +968,7 @@ export function mountApp(root: HTMLElement): void {
 
   /** No trace to step through: stop any playback and tuck the controls away. */
   function leaveStepping(): void {
+    endLive();
     stopPlay();
     pos = 0;
     modebarEl.hidden = true;
@@ -977,7 +1028,7 @@ export function mountApp(root: HTMLElement): void {
   function buildTraceChrome(res: SimResult): void {
     const children: Child[] = [];
     // a program paused on INT 6 is not an event to announce: the terminal's prompt is the cue
-    if (res.reason !== "halted" && res.reason !== "waiting-input") {
+    if (res.reason !== "halted" && res.reason !== "waiting-input" && res.reason !== "running") {
       const reason = t(`stop.${res.reason}`);
       children.push(
         h(
@@ -1001,6 +1052,11 @@ export function mountApp(root: HTMLElement): void {
     );
     applyLedgerState();
 
+    updateSummary(res);
+  }
+
+  /** The step count, the interrupts served and how the run stands. */
+  function updateSummary(res: SimResult): void {
     const irqs = res.steps.filter((s) => s.kind === "irq").length;
     setSummary(
       ...[
@@ -1024,7 +1080,41 @@ export function mountApp(root: HTMLElement): void {
 
   // ---- run -----------------------------------------------------------------
 
+  /** Drops the live run, if any: its timer, the Stop button and what it could still be given. */
+  function endLive(): void {
+    driver?.halt();
+    driver = null;
+    sim = null;
+    stopEl.hidden = true;
+  }
+
+  /** One live batch of steps has run: show how far it got, or close the trace when the run ended. */
+  function liveTick(): void {
+    if (!sim) return;
+    result = sim.result();
+    if (sim.status === "running" || sim.status === "waiting-input") {
+      if (mode === "all") paintTables(false);
+      paintTerminal();
+      updateSummary(result);
+      updateStepper();
+      return;
+    }
+    const done = result;
+    endLive();
+    buildTraceChrome(done);
+    paintTables(false);
+    paintTerminal();
+    hoverEl.textContent = restText();
+    updateStepper();
+  }
+
+  stopEl.addEventListener("click", () => {
+    sim?.stop();
+    liveTick();
+  });
+
   function run(): void {
+    endLive();
     const state = readState();
     history.replaceState(null, "", `#${encodeState(state)}`);
     if (state.source.trim() === "") {
@@ -1032,9 +1122,17 @@ export function mountApp(root: HTMLElement): void {
       return;
     }
     try {
-      renderTrace(
-        simulate(state.source, { input: state.input, waitForInput: true, maxSteps: state.maxSteps, irqEvents: state.events }),
-      );
+      if (state.unlimited) {
+        const live = new Simulation(state.source, { input: state.input, waitForInput: true, maxSteps: Infinity, irqEvents: state.events });
+        sim = live;
+        renderTrace(live.result());
+        stopEl.hidden = false;
+        driver = drive(live, state.stepsPerSecond ?? DEFAULT_RATE, liveTick);
+      } else {
+        renderTrace(
+          simulate(state.source, { input: state.input, waitForInput: true, maxSteps: state.maxSteps, irqEvents: state.events }),
+        );
+      }
       // On a phone the trace sits below the editor: bring it into view.
       if (window.matchMedia("(max-width: 59.99rem)").matches) {
         root.querySelector("#h-trace")?.scrollIntoView({ block: "start" });

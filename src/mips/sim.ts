@@ -235,41 +235,74 @@ export class MipsCpu {
 }
 
 export interface MipsSimOptions {
+  /** Stop with reason "max-steps" after this many steps. Infinity never stops by count. */
   maxSteps?: number;
 }
 
 export interface MipsSimResult {
   program: MipsProgram;
   steps: MipsStep[];
-  reason: "halted" | "max-steps" | "error";
+  reason: "halted" | "max-steps" | "error" | "running" | "stopped";
   error?: string;
   output: string;
   cpu: MipsCpu;
 }
 
+/** A run that can be advanced a few steps at a time and stopped. `steps` is the live list: it grows as the run advances. */
+export class MipsSimulation {
+  readonly program: MipsProgram;
+  readonly cpu: MipsCpu;
+  readonly steps: MipsStep[] = [];
+  /** "running" while it can still advance; otherwise how it ended. */
+  status: MipsSimResult["reason"] = "running";
+  error?: string;
+  private readonly maxSteps: number;
+
+  /** Assembles `source`; AsmError propagates. */
+  constructor(source: string, opts: MipsSimOptions = {}) {
+    this.program = assembleMips(source);
+    this.cpu = new MipsCpu(this.program);
+    this.maxSteps = opts.maxSteps ?? 10_000;
+  }
+
+  /** Runs up to `count` more steps, stopping early when the run ends. */
+  advance(count = Infinity): void {
+    for (let i = 0; i < count && this.status === "running"; i++) {
+      if (this.cpu.halted) {
+        this.status = "halted";
+        break;
+      }
+      if (this.steps.length >= this.maxSteps) {
+        this.status = "max-steps";
+        break;
+      }
+      try {
+        const s = this.cpu.step();
+        s.n = this.steps.length + 1;
+        this.steps.push(s);
+      } catch (e) {
+        if (!(e instanceof MipsError)) throw e;
+        this.status = "error";
+        this.error = e.message;
+      }
+    }
+    if (this.status === "running" && this.cpu.halted) this.status = "halted";
+  }
+
+  /** Ends a run that was still going. */
+  stop(): void {
+    if (this.status === "running") this.status = "stopped";
+  }
+
+  /** The run so far; `steps` is shared with the simulation. */
+  result(): MipsSimResult {
+    return { program: this.program, steps: this.steps, reason: this.status, error: this.error, output: this.cpu.output, cpu: this.cpu };
+  }
+}
+
 /** Assembles `source` and runs it, returning the executed stream. AsmError propagates. */
 export function simulateMips(source: string, opts: MipsSimOptions = {}): MipsSimResult {
-  const program = assembleMips(source);
-  const cpu = new MipsCpu(program);
-  const maxSteps = opts.maxSteps ?? 10_000;
-  const steps: MipsStep[] = [];
-  let reason: MipsSimResult["reason"] = "halted";
-  let error: string | undefined;
-  while (!cpu.halted) {
-    if (steps.length >= maxSteps) {
-      reason = "max-steps";
-      break;
-    }
-    try {
-      const s = cpu.step();
-      s.n = steps.length + 1;
-      steps.push(s);
-    } catch (e) {
-      if (!(e instanceof MipsError)) throw e;
-      reason = "error";
-      error = e.message;
-      break;
-    }
-  }
-  return { program, steps, reason, error, output: cpu.output, cpu };
+  const sim = new MipsSimulation(source, opts);
+  sim.advance();
+  return sim.result();
 }

@@ -548,6 +548,11 @@ export class Cpu {
     return words;
   }
 
+  /** Adds characters to the end of the input buffer INT 6 reads from. */
+  feed(text: string): void {
+    this.input.push(...text);
+  }
+
   /** Runs one instruction (or accepts one pending hardware interrupt) and returns its trace step. */
   step(): TraceStep {
     if (this.halted) throw new CpuError("CPU is halted", this.ip);
@@ -572,7 +577,14 @@ export class Cpu {
       line = ins.line;
       this.ip = (ins.addr + ins.size) & 0xffff;
       this.curLine = ins.line;
-      this.exec(ins);
+      try {
+        this.exec(ins);
+      } catch (e) {
+        // paused, not executed: the same INT 6 runs again once there is input
+        if (e instanceof InputWait) this.ip = startIp;
+        this.curLine = 0;
+        throw e;
+      }
       this.curLine = 0;
     }
     this.stepCount++;
@@ -601,7 +613,7 @@ export class Cpu {
 
 export interface RunResult {
   steps: TraceStep[];
-  reason: "halted" | "max-steps" | "error" | "waiting-input";
+  reason: "halted" | "max-steps" | "error" | "waiting-input" | "running" | "stopped";
   error?: string;
 }
 

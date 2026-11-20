@@ -83,6 +83,8 @@
 
 .key { min-height: 36px; padding: 0 var(--space-md); border: var(--rule-hair) solid var(--color-rule-2); border-radius: var(--radius-input); background: var(--color-key-face); color: var(--color-ink); font: 500 var(--text-sm)/1 var(--font-display); box-shadow: var(--shadow-key); cursor: pointer; transition: transform var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out); }
 @media (hover: hover) { .key:hover:not(:disabled) { transform: translateY(-1px); } }
+.key--icon { display: inline-flex; align-items: center; gap: var(--space-2xs); }
+.key--icon .icon { flex: none; }
 .key:active:not(:disabled) { transform: translateY(3px); box-shadow: var(--shadow-key-press); }
 .key:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 .key--primary { background: var(--color-accent); border-color: var(--color-accent-edge); color: var(--color-accent-ink); box-shadow: var(--shadow-key-accent); }

@@ -1,10 +1,14 @@
 import type { IrqEvent } from "../core/simulate";
+import { liveRate } from "./live";
 
 /** Everything needed to reproduce a trace; lives in the URL hash so a link shares the run. */
 export interface ShareState {
   source: string;
   input: string;
   maxSteps: number;
+  /** Run without a step limit, live and throttled to `stepsPerSecond`. Left out when off. */
+  unlimited?: boolean;
+  stepsPerSecond?: number;
   events: IrqEvent[];
 }
 
@@ -31,6 +35,7 @@ export function decodeState(encoded: string): ShareState | null {
     const s = raw as Record<string, unknown>;
     if (typeof s.source !== "string" || typeof s.input !== "string") return null;
     if (typeof s.maxSteps !== "number" || !Number.isInteger(s.maxSteps) || s.maxSteps < 1) return null;
+    const live = s.unlimited === true ? { unlimited: true, stepsPerSecond: liveRate(s.stepsPerSecond) } : {};
     if (!Array.isArray(s.events)) return null;
     const events: IrqEvent[] = [];
     for (const e of s.events) {
@@ -43,7 +48,7 @@ export function decodeState(encoded: string): ShareState | null {
       }
       events.push({ step: ev.step, line: ev.line });
     }
-    return { source: s.source, input: s.input, maxSteps: s.maxSteps, events };
+    return { source: s.source, input: s.input, maxSteps: s.maxSteps, ...live, events };
   } catch {
     return null;
   }

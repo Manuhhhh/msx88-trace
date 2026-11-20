@@ -17,7 +17,7 @@ const HELP_EN = `
   <h3>Using it</h3>
   <ol>
     <li>Write a program in <strong>Source</strong>, or pick one from <strong>Example</strong>.</li>
-    <li>Press <strong>Run trace</strong> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. In the editor, <kbd>Ctrl</kbd> + <kbd>I</kbd> (or <kbd>Ctrl</kbd> + <kbd>Space</kbd>) suggests instructions, registers and your own labels (suggestions also appear as you type; <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Tab</kbd> accepts, <kbd>Esc</kbd> closes). <kbd>Tab</kbd> indents (<kbd>Shift</kbd> + <kbd>Tab</kbd> outdents); press <kbd>Esc</kbd> and then <kbd>Tab</kbd> to move on to the next control. If a line does not assemble, it is selected in the source with the reason.</li>
+    <li>Press <strong>Run</strong> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. In the editor, <kbd>Ctrl</kbd> + <kbd>I</kbd> (or <kbd>Ctrl</kbd> + <kbd>Space</kbd>) suggests instructions, registers and your own labels (suggestions also appear as you type; <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Tab</kbd> accepts, <kbd>Esc</kbd> closes). <kbd>Tab</kbd> indents (<kbd>Shift</kbd> + <kbd>Tab</kbd> outdents); press <kbd>Esc</kbd> and then <kbd>Tab</kbd> to move on to the next control. If a line does not assemble, it is selected in the source with the reason.</li>
     <li>Read the four tables under <strong>Trace</strong>. Every table is indexed by step: step 1 is the first instruction that ran.</li>
   </ol>
 </section>
@@ -68,7 +68,7 @@ const HELP_ES = `
   <h3>Cómo se usa</h3>
   <ol>
     <li>Escribí un programa en <strong>Código fuente</strong>, o elegí uno desde <strong>Ejemplo</strong>.</li>
-    <li>Tocá <strong>Ejecutar traza</strong> o apretá <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. En el editor, <kbd>Ctrl</kbd> + <kbd>I</kbd> (o <kbd>Ctrl</kbd> + <kbd>Espacio</kbd>) sugiere instrucciones, registros y tus propias etiquetas (las sugerencias también aparecen mientras escribís; <kbd>↑</kbd> <kbd>↓</kbd> eligen, <kbd>Tab</kbd> acepta, <kbd>Esc</kbd> cierra). <kbd>Tab</kbd> indenta (<kbd>Shift</kbd> + <kbd>Tab</kbd> desindenta); apretá <kbd>Esc</kbd> y después <kbd>Tab</kbd> para pasar al siguiente control. Si una línea no ensambla, queda seleccionada en el código con el motivo.</li>
+    <li>Tocá <strong>Ejecutar</strong> o apretá <kbd>Ctrl</kbd> + <kbd>Enter</kbd>. En el editor, <kbd>Ctrl</kbd> + <kbd>I</kbd> (o <kbd>Ctrl</kbd> + <kbd>Espacio</kbd>) sugiere instrucciones, registros y tus propias etiquetas (las sugerencias también aparecen mientras escribís; <kbd>↑</kbd> <kbd>↓</kbd> eligen, <kbd>Tab</kbd> acepta, <kbd>Esc</kbd> cierra). <kbd>Tab</kbd> indenta (<kbd>Shift</kbd> + <kbd>Tab</kbd> desindenta); apretá <kbd>Esc</kbd> y después <kbd>Tab</kbd> para pasar al siguiente control. Si una línea no ensambla, queda seleccionada en el código con el motivo.</li>
     <li>Leé las cuatro tablas de <strong>Traza</strong>. Todas están indexadas por paso: el paso 1 es la primera instrucción que se ejecutó.</li>
   </ol>
 </section>
@@ -160,7 +160,7 @@ const en = {
   "manual.title.mips": "MIPS64 instruction manual",
   "manual.back": "Back to the simulator",
   "manual.contents": "Contents",
-  run: "Run trace",
+  run: "Run",
   "source.title": "Source",
   "layout.btn": "Full-width source",
   "layout.help": "Gives the source the whole width and moves the trace below it.",
@@ -170,6 +170,11 @@ const en = {
   "settings.title.one": "Run settings, {n} interrupt request",
   "settings.title.other": "Run settings, {n} interrupt requests",
   "settings.max": "Step limit",
+  "settings.unlimited": "No step limit (runs live)",
+  "settings.rate": "Steps per second",
+  "stop.running": "Running",
+  "stop.stopped": "Stopped by you",
+  "live.stop": "Stop",
   "settings.events": "Interrupt requests",
   "settings.add": "Add request",
   "settings.remove": "Remove",
@@ -373,7 +378,7 @@ const es: Record<Key, string> = {
   "manual.title.mips": "Manual de instrucciones de MIPS64",
   "manual.back": "Volver al simulador",
   "manual.contents": "Contenido",
-  run: "Ejecutar traza",
+  run: "Ejecutar",
   "source.title": "Código fuente",
   "layout.btn": "Código a todo el ancho",
   "layout.help": "Le da al código todo el ancho y mueve la traza debajo.",
@@ -383,6 +388,11 @@ const es: Record<Key, string> = {
   "settings.title.one": "Ajustes de ejecución, {n} pedido de interrupción",
   "settings.title.other": "Ajustes de ejecución, {n} pedidos de interrupción",
   "settings.max": "Límite de pasos",
+  "settings.unlimited": "Sin límite de pasos (corre en vivo)",
+  "settings.rate": "Pasos por segundo",
+  "stop.running": "Ejecutando",
+  "stop.stopped": "Detenido por vos",
+  "live.stop": "Detener",
   "settings.events": "Pedidos de interrupción",
   "settings.add": "Agregar pedido",
   "settings.remove": "Quitar",
