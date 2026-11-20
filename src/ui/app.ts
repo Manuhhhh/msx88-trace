@@ -888,6 +888,18 @@ export function mountApp(root: HTMLElement): void {
     terminal?.focus();
   }
 
+  /** F10 pressed right now: the interrupt is raised before the next step, so a program waiting on INT 6 serves it and keeps waiting. */
+  function pressF10(): void {
+    if (!result) return;
+    const upTo = mode === "step" ? pos : result.steps.length;
+    const atEnd = result.reason === "waiting-input" && upTo >= result.steps.length;
+    const keep = pos;
+    addEventRow({ line: 0, step: upTo + 1 });
+    run();
+    goTo(atEnd ? total() : keep);
+    terminal?.focus();
+  }
+
   function clearInput(): void {
     typed = [];
     run();
@@ -975,7 +987,7 @@ export function mountApp(root: HTMLElement): void {
         ),
       );
     }
-    terminal = buildTerminal({ onSend: sendInput, onClear: clearInput });
+    terminal = buildTerminal({ onSend: sendInput, onClear: clearInput, onF10: pressF10 });
     termEl.replaceChildren(terminal.el);
     regionEl.replaceChildren(...children.filter((c): c is Node => c !== null && c !== undefined && c !== false));
     paintTerminal();

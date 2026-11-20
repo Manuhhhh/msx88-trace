@@ -69,6 +69,8 @@ interface TerminalOptions {
   onSend?: (line: string) => void;
   /** Called when the user empties the input buffer. */
   onClear?: () => void;
+  /** Called when the user presses the F10 key button. */
+  onF10?: () => void;
 }
 
 /** A graphite terminal: a scrollback of everything printed so far and, when `onSend` is given, a prompt at the end of it. */
@@ -82,9 +84,10 @@ export function buildTerminal(opts: TerminalOptions = {}): Terminal {
   let line: HTMLInputElement | undefined;
   let focusOn: HTMLInputElement | undefined;
   let promptEl: HTMLElement | undefined;
+  let keys: HTMLElement | undefined;
 
   if (opts.onSend) {
-    const { onSend, onClear } = opts;
+    const { onSend, onClear, onF10 } = opts;
     const input = h("input", {
       class: "terminal-input",
       type: "text",
@@ -114,7 +117,10 @@ export function buildTerminal(opts: TerminalOptions = {}): Terminal {
     });
     const clear = h("button", { type: "button", class: "terminal-clear" }, t("terminal.clear"));
     clear.addEventListener("click", () => onClear?.());
-    head.push(clear);
+    const f10 = h("button", { type: "button", class: "terminal-key", title: t("terminal.f10"), "aria-label": t("terminal.f10") }, "F10");
+    f10.addEventListener("click", () => onF10?.());
+    keys = f10;
+    head.push(h("span", { class: "terminal-tools" }, f10, clear));
     scroll.append(form);
     focusOn = input;
     promptEl = form;
@@ -138,6 +144,8 @@ export function buildTerminal(opts: TerminalOptions = {}): Terminal {
       ending.textContent = end?.text ?? "";
       if (end) ending.dataset.kind = end.kind;
       if (promptEl) promptEl.hidden = !!end;
+      // a program that has ended can no longer be interrupted
+      if (keys) keys.hidden = !!end;
       scroll.scrollTop = scroll.scrollHeight;
     },
     focus() {
