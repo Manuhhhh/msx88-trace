@@ -81,3 +81,47 @@ describe("terminalEnd", () => {
     expect(terminalEnd("waiting-input", undefined, 5, 5)).toBeUndefined();
   });
 });
+
+describe("F10 while the program waits for input", () => {
+  const SRC = `EOI EQU 20H
+IMR EQU 21H
+INT0 EQU 24H
+        ORG 40
+IP_F10  DW RUT
+        ORG 1000H
+BUF     DB ?
+CONT    DB 0
+        ORG 2000H
+        CLI
+        MOV AL, 0FEH
+        OUT IMR, AL
+        MOV AL, 10
+        OUT INT0, AL
+        STI
+        MOV BX, OFFSET BUF
+        INT 6
+        INT 0
+        ORG 3000H
+RUT:    PUSH AX
+        INC CONT
+        MOV AL, EOI
+        OUT EOI, AL
+        POP AX
+        IRET
+        END`;
+
+  it("is served before the pending INT 6, and the program keeps waiting", () => {
+    const waiting = simulate(SRC, { waitForInput: true });
+    expect(waiting.reason).toBe("waiting-input");
+    const pressed = simulate(SRC, { waitForInput: true, irqEvents: [{ step: waiting.steps.length + 1, line: 0 }] });
+    expect(pressed.reason).toBe("waiting-input");
+    expect(pressed.steps.filter((s) => s.kind === "irq")).toHaveLength(1);
+    expect(pressed.steps.length).toBeGreaterThan(waiting.steps.length);
+  });
+
+  it("lets the program finish once the input arrives", () => {
+    const first = simulate(SRC, { waitForInput: true });
+    const done = simulate(SRC, { waitForInput: true, input: "a", irqEvents: [{ step: first.steps.length + 1, line: 0 }] });
+    expect(done.reason).toBe("halted");
+  });
+});
