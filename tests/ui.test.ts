@@ -39,12 +39,21 @@ describe("built-in examples", () => {
     it(`"${ex.title}" assembles and halts`, () => {
       const r = simulate(ex.state.source, {
         input: ex.state.input,
+        waitForInput: true,
         maxSteps: ex.state.maxSteps,
         irqEvents: ex.state.events,
       });
-      expect(r.reason).toBe("halted");
+      // the terminal example starts without input: it pauses at its first INT 6 until you type
+      expect(r.reason).toBe(ex.id === "echo" ? "waiting-input" : "halted");
     });
   }
+
+  it("the terminal example prints back the three characters typed", () => {
+    const echo = EXAMPLES.find((e) => e.id === "echo")!.state;
+    const r = simulate(echo.source, { input: "abc", waitForInput: true });
+    expect(r.reason).toBe("halted");
+    expect(r.output).toBe("Type 3 characters: You typed: abc");
+  });
 
   it("the F10 example serves each press and the sum example computes 15", () => {
     const f10 = EXAMPLES.find((e) => e.id === "f10")!.state;

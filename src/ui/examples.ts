@@ -184,11 +184,59 @@ SUMA:   PUSH BP
 `,
 };
 
+const ECHO_INPUT: Record<Lang, string> = {
+  en: `; Ask for three characters in the terminal (INT 6) and print them back (INT 7).
+        ORG 1000H
+ASK     DB "Type 3 characters: "
+ANS     DB "You typed: "
+BUF     DB ?, ?, ?
+FIN     DB ?
+
+        ORG 2000H
+        MOV BX, OFFSET ASK
+        MOV AL, OFFSET ANS - OFFSET ASK
+        INT 7            ; prompt
+        MOV BX, OFFSET BUF
+        MOV CX, 3
+READ:   INT 6            ; pauses until you type in the terminal, stores the character at [BX]
+        INC BX
+        LOOP READ
+        MOV BX, OFFSET ANS
+        MOV AL, OFFSET FIN - OFFSET ANS
+        INT 7            ; "You typed: " followed by the three characters
+        INT 0
+        END
+`,
+  es: `; Pide tres caracteres en la terminal (INT 6) y los imprime de vuelta (INT 7).
+        ORG 1000H
+ASK     DB "Type 3 characters: "
+ANS     DB "You typed: "
+BUF     DB ?, ?, ?
+FIN     DB ?
+
+        ORG 2000H
+        MOV BX, OFFSET ASK
+        MOV AL, OFFSET ANS - OFFSET ASK
+        INT 7            ; pregunta
+        MOV BX, OFFSET BUF
+        MOV CX, 3
+READ:   INT 6            ; se pausa hasta que escribas en la terminal, guarda el carácter en [BX]
+        INC BX
+        LOOP READ
+        MOV BX, OFFSET ANS
+        MOV AL, OFFSET FIN - OFFSET ANS
+        INT 7            ; "You typed: " seguido de los tres caracteres
+        INT 0
+        END
+`,
+};
+
 const TITLES: Record<string, Record<Lang, string>> = {
   f10: { en: "F10 counter with an interrupt handler", es: "Contador de F10 con rutina de interrupción" },
   sum: { en: "Sum with a LOOP", es: "Suma con un LOOP" },
   print: { en: "Print a message with INT 7", es: "Imprimir un mensaje con INT 7" },
   stack: { en: "Pass parameters on the stack", es: "Pasaje de parámetros por pila" },
+  echo: { en: "Read characters from the terminal", es: "Leer caracteres desde la terminal" },
 };
 
 /** The built-in examples, with their titles and comments in the given language. */
@@ -212,6 +260,8 @@ export function examplesFor(lang: Lang): Example[] {
     { id: "sum", title: TITLES.sum[lang], state: plain(SUM_LOOP[lang]) },
     { id: "print", title: TITLES.print[lang], state: plain(PRINT_MESSAGE[lang]) },
     { id: "stack", title: TITLES.stack[lang], state: plain(STACK_PARAMS[lang]) },
+    // no input here: the run pauses at the first INT 6 and the terminal asks for it
+    { id: "echo", title: TITLES.echo[lang], state: plain(ECHO_INPUT[lang]) },
   ];
 }
 
