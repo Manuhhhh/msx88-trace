@@ -26,7 +26,11 @@
   .pane--source { overflow-x: hidden; overflow-y: auto; position: sticky; top: var(--space-lg); height: calc(100dvh - 2 * var(--space-lg)); }
   /* the editor keeps one height whatever is below it (interrupt requests, terminal output): the pane scrolls instead */
   .pane--source .editor { flex: none; min-height: 0; height: clamp(14rem, calc(100dvh - 30rem), 40rem); }
-  .pane--source .settings-body { max-height: 40dvh; overflow-y: auto; }
+  /* nothing in the pane gives way: the editor, the terminal and the settings keep their size and the pane scrolls */
+  .pane--source > * { flex-shrink: 0; }
+  /* the rule between the source and the trace, in the middle of the gap between them */
+  .pane--trace { position: relative; }
+  .shell:not([data-layout="wide"]) .pane--trace::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(var(--space-lg) / -2); width: 2px; margin-left: -1px; background: var(--color-rule-2); }
 }
 
 .pane-title { font: 600 var(--text-xl)/1.1 var(--font-display); letter-spacing: var(--tracking-display); }
