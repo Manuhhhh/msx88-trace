@@ -1,5 +1,5 @@
 import { assemble } from "./assembler";
-import { Cpu, CpuError } from "./cpu";
+import { Cpu, CpuError, InputWait } from "./cpu";
 import type { RunResult, TraceStep } from "./cpu";
 import { Pic } from "./pic";
 import { Timer, TIMER_LINE } from "./timer";
@@ -14,6 +14,8 @@ export interface IrqEvent {
 export interface SimOptions {
   /** Characters consumed by INT 6. */
   input?: string;
+  /** Pause with reason "waiting-input" when INT 6 finds the buffer empty, instead of failing. */
+  waitForInput?: boolean;
   random?: (max: number) => number;
   maxSteps?: number;
   /** External events, e.g. F10 presses (line 0) or timer ticks (line 1). */
@@ -38,6 +40,7 @@ export function simulate(source: string, opts: SimOptions = {}): SimResult {
     interruptPoll: () => pic.poll(),
     deviceState: () => pic.state(),
     input: opts.input,
+    waitForInput: opts.waitForInput,
     random: opts.random,
   });
   const events = [...(opts.irqEvents ?? [])].sort((a, b) => a.step - b.step);
@@ -56,6 +59,10 @@ export function simulate(source: string, opts: SimOptions = {}): SimResult {
       steps.push(cpu.step());
       timer.advance();
     } catch (e) {
+      if (e instanceof InputWait) {
+        reason = "waiting-input";
+        break;
+      }
       if (!(e instanceof CpuError)) throw e;
       reason = "error";
       error = e.message;

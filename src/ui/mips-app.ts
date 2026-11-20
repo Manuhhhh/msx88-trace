@@ -28,6 +28,8 @@ import { createLintView, renderLintChecks } from "./lintview";
 import { revealCurrent } from "./reveal";
 import { createSuggest } from "./suggest";
 import { createTextMetrics } from "./textpos";
+import { buildTerminal, terminalEnd, terminalView } from "./terminal";
+import type { Terminal } from "./terminal";
 
 /** How many instructions the cycle diagram draws at a time: it is steps x cycles, so a long run needs paging. */
 const PIPE_PAGE = 24;
@@ -65,6 +67,7 @@ export function mountMipsApp(root: HTMLElement): void {
                 placeholder=".text&#10;daddi r1, r0, 5&#10;halt"></textarea>
             </div>
           </div>
+          <div id="term" class="term-slot"></div>
           <ul id="lint" class="lint-list" role="status" hidden></ul>
           <details id="lint-opts" class="lint-opts">
             <summary class="label-title" data-i18n="lint.options"></summary>
@@ -127,6 +130,7 @@ export function mountMipsApp(root: HTMLElement): void {
   const maxEl = q<HTMLInputElement>("max");
   const forwardingEl = q<HTMLInputElement>("forwarding");
   const regionEl = q<HTMLDivElement>("region");
+  const termEl = q<HTMLDivElement>("term");
   const ledgersEl = q<HTMLDivElement>("ledgers");
   const gutterEl = q<HTMLPreElement>("gutter");
   const hlCodeEl = q<HTMLElement>("hl-code");
@@ -154,6 +158,7 @@ export function mountMipsApp(root: HTMLElement): void {
   const highlightLine = (line: number): void => lineHl.show(line);
 
   let result: MipsSimResult | null = null;
+  let terminal: Terminal | null = null;
   let pipeline: Pipeline | null = null;
   let pipeStart = 0;
   let view: "empty" | "error" | "trace" = "empty";
@@ -303,6 +308,8 @@ export function mountMipsApp(root: HTMLElement): void {
     setSummary();
     hoverEl.textContent = "";
     ledgersEl.replaceChildren();
+    termEl.replaceChildren();
+    terminal = null;
     regionEl.replaceChildren(
       h("div", { class: "state" }, h("h3", { class: "state-title" }, t("empty.title")), h("p", {}, t("mips.empty.body"))),
     );
@@ -317,6 +324,8 @@ export function mountMipsApp(root: HTMLElement): void {
     setSummary();
     hoverEl.textContent = "";
     ledgersEl.replaceChildren();
+    termEl.replaceChildren();
+    terminal = null;
     regionEl.replaceChildren(
       h(
         "div",
@@ -349,10 +358,10 @@ export function mountMipsApp(root: HTMLElement): void {
         ),
       );
     }
-    if (res.output) {
-      children.push(h("div", { class: "screen graphite cut" }, h("span", { class: "label" }, t("screen.output")), h("pre", {}, res.output)));
-    }
+    terminal = buildTerminal();
+    termEl.replaceChildren(terminal.el);
     regionEl.replaceChildren(...children.filter((c): c is Node => c instanceof Node));
+    paintTerminal();
     ledgersEl.replaceChildren(
       ledger("pipeline", "mips.pipeline", "mips.pipeline.hint"),
       ledger("registers", "mips.registers", "mips.registers.hint"),
@@ -763,9 +772,17 @@ export function mountMipsApp(root: HTMLElement): void {
     const before = pos;
     pos = Math.min(total(), Math.max(0, n));
     paintLedgers(mode === "step" && pos > before);
+    paintTerminal();
     hoverEl.textContent = restText();
     highlightLine(restLine());
     updateStepper();
+  }
+
+  /** Redraws the terminal for the steps shown now. */
+  function paintTerminal(): void {
+    if (!result || !terminal) return;
+    const upTo = mode === "step" ? pos : result.steps.length;
+    terminal.paint(terminalView(result.steps, upTo, []), terminalEnd(result.reason, result.error, upTo, result.steps.length));
   }
 
   function setMode(next: Mode): void {

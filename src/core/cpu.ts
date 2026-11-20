@@ -1,6 +1,16 @@
 import { CONDITIONAL_JUMPS, isMem, regWidth, widthOf } from "./isa";
 import type { Instr, MemOperand, Operand, Program, Reg, Reg16, Width } from "./types";
 
+/** Raised by INT 6 when the input buffer is empty and the CPU was built with `waitForInput`: the program is paused, not broken. */
+export class InputWait extends Error {
+  ip: number;
+  constructor(ip: number) {
+    super("INT 6: waiting for input");
+    this.name = "InputWait";
+    this.ip = ip;
+  }
+}
+
 export class CpuError extends Error {
   ip: number;
   constructor(message: string, ip: number) {
@@ -57,6 +67,8 @@ export interface TraceStep {
   stack: number[];
   /** Characters printed by INT 7 in this step. */
   output: string;
+  /** The character INT 6 consumed from the input buffer in this step. */
+  input?: string;
   /** Device registers after the step (see CpuOptions.deviceState). */
   devices?: Record<string, number>;
   note?: string;
@@ -85,6 +97,8 @@ export interface CpuOptions {
   interruptPoll?: () => { vector: number; label: string } | null;
   /** Characters consumed by INT 6. */
   input?: string;
+  /** With an empty buffer, INT 6 throws InputWait instead of a CpuError so the caller can ask for more input. */
+  waitForInput?: boolean;
   /** Random integer in [0, max], used by INT 5. */
   random?: (max: number) => number;
   /** Initial stack pointer. */
@@ -118,6 +132,7 @@ interface Pending {
   memWrites: MemWrite[];
   io: IoAccess[];
   output: string;
+  input?: string;
   note?: string;
 }
 
@@ -134,6 +149,7 @@ export class Cpu {
   private interruptPoll?: CpuOptions["interruptPoll"];
   private deviceState?: CpuOptions["deviceState"];
   private input: string[];
+  private waitForInput: boolean;
   private random: (max: number) => number;
   private stackBase: number;
   private cur: Pending = { memWrites: [], io: [], output: "" };
@@ -151,6 +167,7 @@ export class Cpu {
     this.interruptPoll = opts.interruptPoll;
     this.deviceState = opts.deviceState;
     this.input = [...(opts.input ?? "")];
+    this.waitForInput = opts.waitForInput ?? false;
     this.random = opts.random ?? ((max) => Math.floor(Math.random() * (max + 1)));
     this.stackBase = opts.sp ?? DEFAULT_SP;
     this.regs = { AX: 0, BX: 0, CX: 0, DX: 0, SI: 0, DI: 0, BP: 0, SP: this.stackBase };
@@ -360,7 +377,11 @@ export class Cpu {
       case 6: {
         // ASSUMPTION: INT 6 stores the character read at the address in BX.
         const ch = this.input.shift();
-        if (ch === undefined) throw new CpuError("INT 6: no input left", this.ip);
+        if (ch === undefined) {
+          if (this.waitForInput) throw new InputWait(this.ip);
+          throw new CpuError("INT 6: no input left", this.ip);
+        }
+        this.cur.input = ch;
         this.write(this.regs.BX, 8, ch.charCodeAt(0));
         this.cur.note = `INT 6: read '${ch}'`;
         return true;
@@ -571,6 +592,7 @@ export class Cpu {
       io: this.cur.io,
       stack: this.stackView(),
       output: this.cur.output,
+      input: this.cur.input,
       devices: this.deviceState?.(),
       note: this.cur.note,
     };
@@ -579,7 +601,7 @@ export class Cpu {
 
 export interface RunResult {
   steps: TraceStep[];
-  reason: "halted" | "max-steps" | "error";
+  reason: "halted" | "max-steps" | "error" | "waiting-input";
   error?: string;
 }
 

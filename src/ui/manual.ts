@@ -467,8 +467,8 @@ export const INT_SERVICES: { n: number; effect: L }[] = [
   {
     n: 6,
     effect: l(
-      "Reads one character from the keyboard input and stores its code at the address in BX. It stops with an error when the input is empty.",
-      "Lee un carácter de la entrada de teclado y guarda su código en la dirección que tiene BX. Se detiene con un error si la entrada está vacía.",
+      "Reads one character from the keyboard input and stores its code at the address in BX. When the input is empty the run pauses and the terminal asks you to type.",
+      "Lee un carácter de la entrada de teclado y guarda su código en la dirección que tiene BX. Si la entrada está vacía, la ejecución se pausa y la terminal te pide que escribas.",
     ),
   },
   {

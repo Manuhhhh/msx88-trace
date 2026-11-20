@@ -23,7 +23,9 @@
 @media (min-width: 60rem) {
   .workspace { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-rows: auto; align-items: start; }
   /* only the page scrolls: the source stays in view while the trace tables run down the page */
-  .pane--source { overflow: hidden; position: sticky; top: var(--space-lg); height: calc(100dvh - 2 * var(--space-lg)); }
+  .pane--source { overflow-x: hidden; overflow-y: auto; position: sticky; top: var(--space-lg); height: calc(100dvh - 2 * var(--space-lg)); }
+  /* the terminal sits under the editor: let the editor give way before the settings below get cut off */
+  .pane--source .editor { min-height: 14rem; }
   .pane--source .settings-body { max-height: 40dvh; overflow-y: auto; }
 }
 
@@ -319,3 +321,27 @@ a.key { display: inline-flex; align-items: center; text-decoration: none; }
 .log--pipe tr.is-hover td.st, .log--pipe tr.is-current td.st { background: var(--st-bg, transparent); }
 /* a taken branch edges its row, the same signature as an interrupt in the MSX88 tables */
 .log tr.log-row--flush th { box-shadow: inset 3px 0 0 var(--color-accent-deep); }
+
+.terminal-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-xs); }
+.terminal-clear { background: none; border: 0; padding: 0; color: var(--color-graphite-muted); font: inherit; font-size: var(--text-sm); cursor: pointer; text-decoration: underline; }
+.terminal-clear:hover { color: var(--color-graphite-ink); }
+.terminal:focus-within { outline: 1px solid var(--color-graphite-2); }
+.term-slot { flex: none; min-width: 0; }
+.term-slot:empty { display: none; }
+.terminal-scroll { min-height: 14rem; max-height: 24rem; overflow-y: auto; overscroll-behavior: contain; cursor: text; font: 400 var(--text-sm)/1.5 var(--font-outlier); }
+.terminal-scroll:focus { outline: none; }
+.terminal-scroll > pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.terminal-queued { color: var(--color-graphite-muted); }
+.terminal-line { position: relative; display: flex; gap: 1ch; margin: 0; }
+.terminal-prompt { color: var(--color-accent-2); }
+.terminal-mirror { flex: 1 1 auto; min-width: 0; min-height: 1.5em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.terminal-input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; background: transparent; font: inherit; caret-color: transparent; pointer-events: none; }
+.terminal-cursor { visibility: hidden; }
+.terminal-line:focus-within .terminal-cursor { visibility: visible; animation: terminal-blink 1.06s steps(1) infinite; }
+@keyframes terminal-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .terminal-line:focus-within .terminal-cursor { animation: none; } }
+.terminal-end { display: flex; align-items: center; gap: 1ch; margin: var(--space-3xs) 0 0; color: var(--color-graphite-muted); }
+.terminal-end::before, .terminal-end::after { content: ""; flex: 1 1 0; border-top: 1px dashed currentColor; opacity: 0.5; }
+.terminal-end[data-kind="halted"] { color: var(--color-accent-2); }
+.terminal-end[data-kind="error"] { color: oklch(76% 0.13 27); }
+.terminal-line[hidden], .terminal-end[hidden] { display: none; }
