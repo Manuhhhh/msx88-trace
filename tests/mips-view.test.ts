@@ -28,14 +28,14 @@ describe("MIPS64 highlight", () => {
 });
 
 describe("MIPS64 table models", () => {
-  const res = sim("daddi r1, r0, 7\nnop\ndadd r2, r1, r1\nddiv r2, r1\nhalt");
+  const res = sim("daddi r1, r0, 7\nnop\ndadd r2, r1, r1\nddiv r3, r2, r1\nhalt");
 
   it("lists only the steps and registers that changed, in register order", () => {
     const t = registerTable(res.steps);
-    expect(t.cols).toEqual(["r1", "r2", "lo", "hi"]);
+    expect(t.cols).toEqual(["r1", "r2", "r3"]);
     expect(t.rows.map((r) => r.step)).toEqual([1, 3, 4]);
     expect(t.rows[0].set.get("r1")).toBe(7n);
-    expect(t.rows[2].set.get("lo")).toBe(2n);
+    expect(t.rows[2].set.get("r3")).toBe(2n);
   });
 
   it("lists every memory access in order", () => {
@@ -138,8 +138,8 @@ describe("built-in MIPS64 examples", () => {
   });
 
   it("prints the product", () => {
-    const r = simulateMips(mipsExamplesFor("en").find((e) => e.id === "print")!.source);
-    expect(r.output).toBe("6 * 7 = 42\n");
+    const r = simulateMips(mipsExamplesFor("en").find((e) => e.id === "print-int")!.source);
+    expect(r.output).toBe("42\n");
   });
 });
 
@@ -167,9 +167,9 @@ describe("step-by-step helpers", () => {
     expect(branch.taken).toBe(true);
   });
 
-  it("names LO and HI when a division writes them", () => {
-    const d = sim("daddi r1, r0, 7\ndaddi r2, r0, 2\nddiv r1, r2\nhalt");
+  it("names the register a division writes", () => {
+    const d = sim("daddi r1, r0, 7\ndaddi r2, r0, 2\nddiv r3, r1, r2\nhalt");
     const q = buildPipeline(d.steps, { forwarding: true });
-    expect(stepFacts(d.steps[2], q.rows[2]).regs).toEqual(["LO = 3", "HI = 1"]);
+    expect(stepFacts(d.steps[2], q.rows[2]).regs).toEqual(["r3 = 3"]);
   });
 });

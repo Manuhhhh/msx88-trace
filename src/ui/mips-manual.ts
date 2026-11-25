@@ -67,46 +67,43 @@ export const MIPS_MANUAL: MipsManualGroup[] = [
         ),
       },
       {
-        covers: ["daddiu"],
-        syntax: "daddiu rt, rs, imm",
-        example: "daddiu r1, r0, 5",
+        covers: ["daddui"],
+        syntax: "daddui rt, rs, imm",
+        example: "daddui r1, r0, 5",
         effect: l("Same as daddi but wraps around on overflow.", "Igual que daddi pero da la vuelta si hay desborde."),
       },
       {
-        covers: ["dmul", "dmulu"],
+        covers: ["dmul"],
         syntax: "dmul rd, rs, rt",
         example: "dmul r3, r1, r2",
         effect: l(
-          "rd = the low 64 bits of rs × rt. <code>dmulu</code> is the same instruction.",
-          "rd = los 64 bits bajos de rs × rt. <code>dmulu</code> es la misma instrucción.",
+          "rd = the low 64 bits of rs × rt, signed.",
+          "rd = los 64 bits bajos de rs × rt, con signo.",
+        ),
+      },
+      {
+        covers: ["dmulu"],
+        syntax: "dmulu rd, rs, rt",
+        example: "dmulu r3, r1, r2",
+        effect: l(
+          "rd = the low 64 bits of rs × rt, treating both values as unsigned.",
+          "rd = los 64 bits bajos de rs × rt, tratando los dos valores como sin signo.",
         ),
       },
       {
         covers: ["ddiv"],
-        syntax: "ddiv rs, rt",
-        example: "ddiv r1, r2",
+        syntax: "ddiv rd, rs, rt",
+        example: "ddiv r3, r1, r2",
         effect: l(
-          "Signed division: LO = rs / rt (the quotient) and HI = rs % rt (the remainder). Read them with <code>mflo</code> and <code>mfhi</code>. Dividing by zero stops the program.",
-          "División con signo: LO = rs / rt (el cociente) y HI = rs % rt (el resto). Se leen con <code>mflo</code> y <code>mfhi</code>. Dividir por cero detiene el programa.",
+          "Signed division: rd = rs / rt (the quotient only; there is no remainder). Dividing by zero stops the program.",
+          "División con signo: rd = rs / rt (solo el cociente; no hay resto). Dividir por cero detiene el programa.",
         ),
       },
       {
         covers: ["ddivu"],
-        syntax: "ddivu rs, rt",
-        example: "ddivu r1, r2",
+        syntax: "ddivu rd, rs, rt",
+        example: "ddivu r3, r1, r2",
         effect: l("Same as ddiv, treating both values as unsigned.", "Igual que ddiv, pero tratando los dos valores como sin signo."),
-      },
-      {
-        covers: ["mflo"],
-        syntax: "mflo rd",
-        example: "mflo r3",
-        effect: l("rd = LO, the quotient of the last division.", "rd = LO, el cociente de la última división."),
-      },
-      {
-        covers: ["mfhi"],
-        syntax: "mfhi rd",
-        example: "mfhi r3",
-        effect: l("rd = HI, the remainder of the last division.", "rd = HI, el resto de la última división."),
       },
     ],
   },
@@ -131,12 +128,6 @@ export const MIPS_MANUAL: MipsManualGroup[] = [
         syntax: "xor rd, rs, rt",
         example: "xor r3, r1, r2",
         effect: l("rd = rs XOR rt, bit by bit. <code>xor r1, r1, r1</code> clears r1.", "rd = rs XOR rt, bit a bit. <code>xor r1, r1, r1</code> deja r1 en 0."),
-      },
-      {
-        covers: ["nor"],
-        syntax: "nor rd, rs, rt",
-        example: "nor r3, r1, r2",
-        effect: l("rd = NOT (rs OR rt), bit by bit.", "rd = NOT (rs OR rt), bit a bit."),
       },
       {
         covers: ["andi"],
@@ -349,10 +340,10 @@ export const MIPS_MANUAL: MipsManualGroup[] = [
         effect: l("Jumps to label when rs is not 0. It closes most loops.", "Salta a label cuando rs no vale 0. Cierra la mayoría de los bucles."),
       },
       {
-        covers: ["j", "b"],
+        covers: ["j"],
         syntax: "j label",
         example: "j L",
-        effect: l("Always jumps to label. <code>b</code> does the same.", "Salta siempre a label. <code>b</code> hace lo mismo."),
+        effect: l("Always jumps to label.", "Salta siempre a label."),
       },
       {
         covers: ["jal"],
@@ -390,29 +381,17 @@ export const MIPS_MANUAL: MipsManualGroup[] = [
         example: "halt",
         effect: l("Ends the program.", "Termina el programa."),
       },
-      {
-        covers: ["syscall"],
-        syntax: "syscall [number]",
-        example: "syscall 0",
-        effect: l(
-          "Asks the simulator for a service. Without a number it is 0. See “Syscalls” below for the ones that work; any other number stops the program.",
-          "Le pide un servicio al simulador. Sin número vale 0. Los que funcionan están en “Syscalls” más abajo; cualquier otro número detiene el programa.",
-        ),
-      },
     ],
   },
 ];
 
-/** The syscall numbers the simulator handles. */
-export const MIPS_SYSCALLS: { n: number; effect: L }[] = [
-  { n: 0, effect: l("Ends the program, like halt.", "Termina el programa, igual que halt.") },
-  {
-    n: 5,
-    effect: l(
-      "printf. r14 holds the address of a block of 64-bit values: the first one is the address of the format string and the next ones are its arguments. <code>%d</code> and <code>%i</code> print a number, <code>%s</code> a string, <code>%c</code> a character and <code>%%</code> a percent sign. When it ends, r1 holds the number of characters printed.",
-      "printf. r14 tiene la dirección de un bloque de valores de 64 bits: el primero es la dirección del texto de formato y los siguientes son sus argumentos. <code>%d</code> y <code>%i</code> imprimen un número, <code>%s</code> un texto, <code>%c</code> un carácter y <code>%%</code> un signo de porcentaje. Al terminar, r1 tiene la cantidad de caracteres impresos.",
-    ),
-  },
+/** The memory-mapped output modes of WinMIPS64: write DATA, then CONTROL. */
+export const MIPS_IO: { n: number; effect: L }[] = [
+  { n: 1, effect: l("Prints DATA as an unsigned integer followed by a newline.", "Imprime DATA como entero sin signo seguido de un salto de línea.") },
+  { n: 2, effect: l("Prints DATA as a signed integer followed by a newline.", "Imprime DATA como entero con signo seguido de un salto de línea.") },
+  { n: 3, effect: l("Prints DATA as a double followed by a newline.", "Imprime DATA como double seguido de un salto de línea.") },
+  { n: 4, effect: l("Prints the zero-terminated string whose address is in DATA (no newline).", "Imprime el string terminado en cero cuya dirección está en DATA (sin salto de línea).") },
+  { n: 6, effect: l("Clears the terminal.", "Limpia la terminal.") },
 ];
 
 const OPERANDS: L[] = [
@@ -425,8 +404,8 @@ const OPERANDS: L[] = [
     "<strong>Inmediatos</strong>: decimal <code>10</code>, <code>-3</code>, hexadecimal <code>0xFF</code> o un carácter <code>'A'</code>. En las instrucciones con un inmediato de 16 bits tiene que estar entre -32768 y 65535. También sirve una etiqueta de datos más o menos un número: <code>tabla+8</code>.",
   ),
   l(
-    "<strong>Memory</strong>: <code>offset(register)</code>, for example <code>8(r2)</code>, <code>(r2)</code> or <code>n(r0)</code>. Data memory has 65536 bytes and starts at address 0; instructions live apart from it, 4 bytes each.",
-    "<strong>Memoria</strong>: <code>desplazamiento(registro)</code>, por ejemplo <code>8(r2)</code>, <code>(r2)</code> o <code>n(r0)</code>. La memoria de datos tiene 65536 bytes y empieza en la dirección 0; las instrucciones viven aparte, de 4 bytes cada una.",
+    "<strong>Memory</strong>: <code>offset(register)</code>, for example <code>8(r2)</code>, <code>(r2)</code> or <code>n(r0)</code>. Data memory has 65536 bytes and starts at address 0 and is little-endian; instructions live apart from it, 4 bytes each.",
+    "<strong>Memoria</strong>: <code>desplazamiento(registro)</code>, por ejemplo <code>8(r2)</code>, <code>(r2)</code> o <code>n(r0)</code>. La memoria de datos tiene 65536 bytes, empieza en la dirección 0 y es little-endian; las instrucciones viven aparte, de 4 bytes cada una.",
   ),
   l(
     "<strong>Labels</strong>: <code>name:</code> before an instruction names its address; before data it names the address of that datum. A label can sit on its own line.",
@@ -437,36 +416,38 @@ const OPERANDS: L[] = [
 const DIRECTIVES: { syntax: string; effect: L }[] = [
   { syntax: ".data", effect: l("Starts the data section: the lines that follow reserve memory.", "Empieza la sección de datos: las líneas que siguen reservan memoria.") },
   { syntax: ".text", effect: l("Starts the code section (the program begins in it). <code>.code</code> is the same.", "Empieza la sección de código (el programa arranca en ella). <code>.code</code> es lo mismo.") },
-  { syntax: ".global label", effect: l("Makes label the first instruction to run; without it the program starts at the first one. <code>.globl</code> and <code>.entry</code> are the same.", "Hace que label sea la primera instrucción en ejecutarse; sin esto el programa arranca en la primera. <code>.globl</code> y <code>.entry</code> son lo mismo.") },
-  { syntax: "name: .word 1, 2", effect: l("Reserves 64-bit numbers. <code>.word64</code> is the same.", "Reserva números de 64 bits. <code>.word64</code> es lo mismo.") },
+  { syntax: ".global", effect: l("Accepted and ignored: it takes no operand and does not change the entry point, which is always the first instruction.", "Se acepta y se ignora: no lleva operando y no cambia el punto de entrada, que siempre es la primera instrucción.") },
+  { syntax: "name: .word 1, 2", effect: l("Reserves 64-bit numbers.", "Reserva números de 64 bits.") },
   { syntax: ".word32 / .word16 / .byte", effect: l("Reserve numbers of 32, 16 and 8 bits.", "Reservan números de 32, 16 y 8 bits.") },
   { syntax: ".space n", effect: l("Reserves n bytes, all 0.", "Reserva n bytes, todos en 0.") },
-  { syntax: ".ascii \"text\"", effect: l("Stores the characters of a string. <code>.asciiz</code> adds a final 0 byte, which printf needs to know where a string ends.", "Guarda los caracteres de un texto. <code>.asciiz</code> agrega un byte 0 al final, que printf necesita para saber dónde termina el texto.") },
+  { syntax: ".align n", effect: l("Moves the data pointer up to the next multiple of 2<sup>n</sup>; n goes from 2 to 16.", "Mueve el puntero de datos hasta el próximo múltiplo de 2<sup>n</sup>; n va de 2 a 16.") },
+  { syntax: ".org n", effect: l("Moves the data pointer to address n, which cannot be below the current one.", "Mueve el puntero de datos a la dirección n, que no puede estar antes de la actual.") },
+  { syntax: ".ascii \"text\"", effect: l("Stores the characters of a string. <code>.asciiz</code> adds a final 0 byte, which CONTROL = 4 needs to know where a string ends.", "Guarda los caracteres de un texto. <code>.asciiz</code> agrega un byte 0 al final, que CONTROL = 4 necesita para saber dónde termina el texto.") },
   { syntax: "# comment", effect: l("Everything after <code>#</code> or <code>;</code> is ignored.", "Todo lo que sigue a <code>#</code> o <code>;</code> se ignora.") },
 ];
 
 const TEXT = {
   en: {
-    intro: "Reference for the MIPS64 instructions this simulator runs: what each one does and an example that assembles as written.",
-    note: "Data is aligned to its size: a .word starts at a multiple of 8, a .word32 at a multiple of 4, and so on.",
+    intro: "Reference for the WinMIPS64 instructions this simulator runs: what each one does and an example that assembles as written.",
+    note: "Data is NOT aligned automatically: it is laid out one datum after another, so put .word32 values at a multiple of 4 and .word values at a multiple of 8 yourself (with .align, .org or by ordering the data). Memory is little-endian.",
     syntax: "Syntax",
     example: "Example",
     operands: "Operands",
     directives: "Directives and syntax",
     instructions: "Instructions",
-    syscalls: "Syscalls",
-    syscallsIntro: "These syscall numbers are answered by the simulator itself.",
+    io: "Memory-mapped I/O",
+    ioIntro: "Output goes through two words of memory: DATA at address 0x10008 holds the value and CONTROL at 0x10000 holds the operation. Writing a nonzero CONTROL performs it and clears CONTROL. Load the addresses first, for example <code>lwu r31, CONTROL(r0)</code> with <code>CONTROL: .word32 0x10000</code>. Modes 5 and 7 (graphics) and 8 and 9 (keyboard input) are not supported and stop the program.",
   },
   es: {
-    intro: "Referencia de las instrucciones de MIPS64 que ejecuta este simulador: qué hace cada una y un ejemplo que ensambla tal cual.",
-    note: "Los datos se alinean a su tamaño: un .word empieza en un múltiplo de 8, un .word32 en un múltiplo de 4, y así.",
+    intro: "Referencia de las instrucciones de WinMIPS64 que ejecuta este simulador: qué hace cada una y un ejemplo que ensambla tal cual.",
+    note: "Los datos NO se alinean automáticamente: se guardan uno detrás de otro, así que ubicá vos los .word32 en múltiplos de 4 y los .word en múltiplos de 8 (con .align, .org o ordenando los datos). La memoria es little-endian.",
     syntax: "Sintaxis",
     example: "Ejemplo",
     operands: "Operandos",
     directives: "Directivas y sintaxis",
     instructions: "Instrucciones",
-    syscalls: "Syscalls",
-    syscallsIntro: "Estos números de syscall los atiende el propio simulador.",
+    io: "Entrada/salida mapeada en memoria",
+    ioIntro: "La salida pasa por dos palabras de memoria: DATA en la dirección 0x10008 guarda el valor y CONTROL en 0x10000 guarda la operación. Escribir un CONTROL distinto de cero la ejecuta y lo deja en 0. Primero hay que cargar las direcciones, por ejemplo <code>lwu r31, CONTROL(r0)</code> con <code>CONTROL: .word32 0x10000</code>. Los modos 5 y 7 (gráficos) y 8 y 9 (entrada de teclado) no están soportados y detienen el programa.",
   },
 } as const;
 
@@ -474,7 +455,7 @@ const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;"
 const pre = (s: string): string => `<pre><code>${esc(s)}</code></pre>`;
 const entryId = (e: MipsManualEntry): string => e.covers[0];
 
-/** The MIPS64 manual as documentation in the chosen language. Every text is fixed in this file, so it is safe to inject. */
+/** The WinMIPS64 manual as documentation in the chosen language. Every text is fixed in this file, so it is safe to inject. */
 export function mipsManualDoc(lang: Lang): ManualDoc {
   const x = TEXT[lang];
   const nav: string[] = [];
@@ -506,9 +487,9 @@ export function mipsManualDoc(lang: Lang): ManualDoc {
   }
 
   section(
-    "syscalls",
-    x.syscalls,
-    `<p>${x.syscallsIntro}</p>` + MIPS_SYSCALLS.map((s) => `<article><h3>syscall ${s.n}</h3><p>${s.effect[lang]}</p></article>`).join(""),
+    "io",
+    x.io,
+    `<p>${x.ioIntro}</p>` + MIPS_IO.map((s) => `<article><h3>CONTROL = ${s.n}</h3><p>${s.effect[lang]}</p></article>`).join(""),
   );
   return { nav: `<ul>${nav.join("")}</ul>`, body: body.join("") };
 }
