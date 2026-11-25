@@ -119,7 +119,7 @@
 @media (min-width: 60rem) {
   .ledgers { grid-template-columns: var(--cols, repeat(2, minmax(0, 1fr))); }
   /* split view: the registers, the flags and the byte map need the full width; heap and stack share a row */
-  .shell:not([data-layout="wide"]) .ledger:nth-child(1), .shell:not([data-layout="wide"]) .ledger:nth-child(4), .shell:not([data-layout="wide"]) .ledger:nth-child(5) { grid-column: 1 / -1; }
+  .shell:not([data-layout="wide"]) .ledger:nth-child(1), .shell:not([data-layout="wide"]) .ledger:nth-child(4), .shell:not([data-layout="wide"]) .ledger:nth-child(5), .shell:not([data-layout="wide"]) .ledger:nth-child(6) { grid-column: 1 / -1; }
   /* a heap or stack table with nothing beside it takes the whole row */
   .shell:not([data-layout="wide"]) .ledger[data-ledger="heap"]:has(+ .is-empty), .shell:not([data-layout="wide"]) .ledger.is-empty + .ledger[data-ledger="stack"] { grid-column: 1 / -1; }
   /* full-width source: it takes the top of the screen, the four ledgers sit side by side below */

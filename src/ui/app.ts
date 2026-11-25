@@ -8,6 +8,7 @@ import type { Child } from "./dom";
 import { examplesFor } from "./examples";
 import { bin8, hex8, hex16 } from "./format";
 import { DEFAULT_SP } from "../core/cpu";
+import { PIO_PORTS, Pio } from "../core/pio";
 import { fmtUnsigned, useRadixFor, wireRadix } from "./radix";
 import { buildHistory, stackSlots } from "./history";
 import { markRange, tokenize } from "./highlight";
@@ -36,7 +37,7 @@ import type { ShareState } from "./share";
 
 const LINE_IDS = [0, 1, 2] as const;
 
-type LedgerId = "registers" | "flags" | "heap" | "stack" | "bytes";
+type LedgerId = "registers" | "flags" | "heap" | "stack" | "bytes" | "ports";
 
 export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
@@ -510,7 +511,7 @@ export function mountApp(root: HTMLElement): void {
   }
 
   // Each ledger can be hidden down to its header or enlarged to fill the whole trace area.
-  const LEDGER_ORDER: readonly LedgerId[] = ["registers", "heap", "stack", "flags", "bytes"];
+  const LEDGER_ORDER: readonly LedgerId[] = ["registers", "heap", "stack", "flags", "bytes", "ports"];
   const collapsed = new Set<LedgerId>();
   let expanded: LedgerId | null = null;
   let wide = false;
@@ -709,6 +710,35 @@ export function mountApp(root: HTMLElement): void {
     return h("div", {}, table, more);
   }
 
+  /** PA, PB, CA and CB as they stand after the current step (their reset values before the first one). */
+  function portsTable(upTo: number): HTMLElement {
+    const regs = (upTo > 0 ? result!.steps[upTo - 1].ports : undefined) ?? new Pio().state();
+    return h(
+      "table",
+      { class: "log" },
+      h("caption", { class: "sr-only" }, t("caption.ports")),
+      h(
+        "thead",
+        {},
+        h("tr", {}, h("th", { scope: "col", class: "num" }, t("table.address")), h("th", { scope: "col" }, ""), h("th", { scope: "col", class: "val" }, t("table.hex")), h("th", { scope: "col", class: "val" }, t("table.bits"))),
+      ),
+      h(
+        "tbody",
+        {},
+        ...(["PA", "PB", "CA", "CB"] as const).map((name) =>
+          h(
+            "tr",
+            { class: "log-row" },
+            h("th", { scope: "row", class: "num" }, `${hex8(PIO_PORTS[name])}H`),
+            h("td", { class: "var-name" }, name),
+            h("td", { class: "val" }, `${hex8(regs[name])}H`),
+            h("td", { class: "val" }, bin8(regs[name])),
+          ),
+        ),
+      ),
+    );
+  }
+
   /** The stack like the heap: one row per word from the base down, with every value pushed there in order; popped ones are dimmed. */
   function stackSlotsTable(events: ReturnType<typeof buildHistory>["stack"], upTo: number): HTMLElement {
     if (events.length === 0) return h("p", { class: "none" }, t("none.stack"));
@@ -856,6 +886,7 @@ export function mountApp(root: HTMLElement): void {
       heap: hist.heap.length > 0 ? heapTable(hist.heap) : h("p", { class: "none" }, t("none.heap")),
       stack: compactStack ? stackSlotsTable(hist.stack, upTo) : stackTable(upTo),
       bytes: bytesTable(upTo),
+      ports: portsTable(upTo),
     };
     for (const el of ledgersEl.querySelectorAll<HTMLElement>(".ledger")) {
       const body = el.querySelector<HTMLElement>(".ledger-body")!;
@@ -1052,6 +1083,7 @@ export function mountApp(root: HTMLElement): void {
       ledger("stack", "hint.stack"),
       ledger("flags", "hint.values"),
       ledger("bytes", "hint.bytes"),
+      ledger("ports", "hint.ports"),
     );
     applyLedgerState();
 
