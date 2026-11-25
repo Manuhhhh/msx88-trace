@@ -52,33 +52,32 @@ describe("MIPS64 CPU", () => {
     expect(r(res, 3)).toBe(48n);
   });
 
-  it("multiplies and divides with LO/HI", () => {
-    const res = run("daddi r1, r0, 17\ndaddi r2, r0, 5\ndmul r3, r1, r2\nddiv r1, r2\nmflo r4\nmfhi r5\nhalt");
+  it("multiplies and divides with three registers, no LO/HI", () => {
+    const res = run("daddi r1, r0, 17\ndaddi r2, r0, 5\ndmul r3, r1, r2\nddiv r4, r1, r2\nhalt");
     expect(r(res, 3)).toBe(85n);
     expect(r(res, 4)).toBe(3n);
-    expect(r(res, 5)).toBe(2n);
   });
 
   it("stops with an error on division by zero", () => {
-    const res = run("daddi r1, r0, 1\nddiv r1, r0\nhalt");
+    const res = run("daddi r1, r0, 1\nddiv r2, r1, r0\nhalt");
     expect(res.reason).toBe("error");
     expect(res.error).toContain("Division by zero");
   });
 
-  it("loads and stores big-endian with sign extension", () => {
+  it("loads and stores little-endian with sign extension", () => {
     const res = run(`
       .data
       buf: .space 16
       .text
       daddi r1, r0, 0x1234
       sd r1, buf(r0)
-      lbu r2, buf+7(r0)
-      lbu r3, buf+6(r0)
+      lbu r2, buf(r0)
+      lbu r3, buf+1(r0)
       daddi r4, r0, -2
       sb r4, buf+8(r0)
       lb r5, buf+8(r0)
       lbu r6, buf+8(r0)
-      lh r7, buf+6(r0)
+      lh r7, buf(r0)
       halt`);
     expect(r(res, 2)).toBe(0x34n);
     expect(r(res, 3)).toBe(0x12n);
@@ -119,27 +118,67 @@ describe("MIPS64 CPU", () => {
     expect(r(res, 31)).toBe(4n);
   });
 
-  it("prints with syscall 5 (printf) and exits with syscall 0", () => {
-    const res = run(`
+  const IO = `
       .data
-      fmt: .asciiz "n=%d s=%s%%\\n"
-      str: .asciiz "ok"
-      params: .word64 fmt, 42, str
+      CONTROL: .word32 0x10000
+      DATA: .word32 0x10008
+      msg: .asciiz "hola"
       .text
-      daddi r14, r0, params
-      syscall 5
-      syscall 0
-      daddi r3, r0, 1`);
-    expect(res.output).toBe("n=42 s=ok%\n");
+      lwu r31, CONTROL(r0)
+      lwu r30, DATA(r0)
+`;
+
+  it("prints a string through CONTROL=4 and DATA=address, with no newline", () => {
+    const res = run(`${IO}
+      daddi r29, r0, 4
+      daddi r28, r0, msg
+      sd r28, (r30)
+      sd r29, (r31)
+      halt`);
     expect(res.reason).toBe("halted");
-    expect(r(res, 1)).toBe(11n);
-    expect(r(res, 3)).toBe(0n);
+    expect(res.output).toBe("hola");
+    expect(res.steps.find((s) => s.output)?.output).toBe("hola");
   });
 
-  it("rejects an unsupported syscall", () => {
-    const res = run("syscall 9\nhalt");
+  it("prints unsigned and signed integers through CONTROL=1 and 2, one per line", () => {
+    const res = run(`${IO}
+      daddi r1, r0, -1
+      sd r1, (r30)
+      daddi r2, r0, 1
+      sd r2, (r31)
+      daddi r3, r0, -5
+      sd r3, (r30)
+      daddi r2, r0, 2
+      sd r2, (r31)
+      halt`);
+    expect(res.output).toBe("18446744073709551615\n-5\n");
+  });
+
+  it("clears CONTROL after acting and clears the terminal with CONTROL=6", () => {
+    const res = run(`${IO}
+      daddi r1, r0, 7
+      sd r1, (r30)
+      daddi r2, r0, 1
+      sd r2, (r31)
+      ld r3, (r31)
+      daddi r4, r0, 6
+      sd r4, (r31)
+      halt`);
+    expect(r(res, 3)).toBe(0n);
+    expect(res.output).toBe("");
+  });
+
+  it("stops on the unsupported I/O modes with a clear error", () => {
+    const res = run(`${IO}
+      daddi r4, r0, 8
+      sd r4, (r31)
+      halt`);
     expect(res.reason).toBe("error");
-    expect(res.error).toContain("Unsupported syscall 9");
+    expect(res.error).toContain("not supported");
+  });
+
+  it("rejects syscall: WinMIPS64 has none", () => {
+    expect(() => run("syscall 0\nhalt")).toThrow("Unknown instruction syscall");
   });
 
   it("halts when execution runs past the last instruction", () => {

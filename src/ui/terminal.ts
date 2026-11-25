@@ -8,6 +8,8 @@ export interface TermStep {
   output?: string;
   /** The character the program consumed from the input buffer. */
   input?: string;
+  /** True when the step cleared the terminal (WinMIPS64 CONTROL = 6). */
+  clear?: boolean;
 }
 
 export interface TermView {
@@ -37,6 +39,7 @@ export function terminalView(steps: readonly TermStep[], upTo: number, lines: re
       while (echoed < lines.length && starts[echoed] <= consumed) text += `${lines[echoed++]}\n`;
       consumed++;
     }
+    if (s.clear) text = "";
     if (s.output) text += s.output;
   }
   return { text, pending: lines.slice(echoed).filter((l) => l !== "") };

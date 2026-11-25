@@ -114,35 +114,77 @@ loop:   ld    r3, 0(r1)
   },
   {
     id: "print",
-    title: { en: "Print with syscall 5", es: "Imprimir con syscall 5" },
+    title: { en: "Print a string (CONTROL/DATA)", es: "Imprimir un string (CONTROL/DATA)" },
     source: {
-      en: `; printf: r14 points at a block with the format and its arguments.
+      en: `; WinMIPS64 output is memory mapped: write what to show in DATA,
+; then the operation (4 = string at that address) in CONTROL.
         .data
-fmt:    .asciiz "6 * 7 = %d\\n"
-params: .word fmt, 0
+CONTROL: .word32 0x10000
+DATA:    .word32 0x10008
+msg:     .asciiz "Hola mundo!"
 
         .text
-        daddi r1, r0, 6
-        daddi r2, r0, 7
-        dmul  r3, r1, r2
-        sd    r3, params+8(r0)
-        daddi r14, r0, params
-        syscall 5
-        syscall 0
+        lwu   r31, CONTROL(r0)
+        lwu   r30, DATA(r0)
+        daddi r29, r0, 4      ; 4 = print the string
+        daddi r28, r0, msg
+        sd    r28, (r30)      ; DATA = address of msg
+        sd    r29, (r31)      ; CONTROL = 4
+        halt
 `,
-      es: `; printf: r14 apunta a un bloque con el formato y sus argumentos.
+      es: `; La salida de WinMIPS64 está mapeada en memoria: escribí qué mostrar en DATA
+; y después la operación (4 = string en esa dirección) en CONTROL.
         .data
-fmt:    .asciiz "6 * 7 = %d\\n"
-params: .word fmt, 0
+CONTROL: .word32 0x10000
+DATA:    .word32 0x10008
+msg:     .asciiz "Hola mundo!"
 
         .text
+        lwu   r31, CONTROL(r0)
+        lwu   r30, DATA(r0)
+        daddi r29, r0, 4      ; 4 = imprimir el string
+        daddi r28, r0, msg
+        sd    r28, (r30)      ; DATA = dirección de msg
+        sd    r29, (r31)      ; CONTROL = 4
+        halt
+`,
+    },
+  },
+  {
+    id: "print-int",
+    title: { en: "Print an integer (CONTROL = 2)", es: "Imprimir un entero (CONTROL = 2)" },
+    source: {
+      en: `; CONTROL = 2 prints DATA as a signed integer followed by a newline.
+        .data
+CONTROL: .word32 0x10000
+DATA:    .word32 0x10008
+
+        .text
+        lwu   r31, CONTROL(r0)
+        lwu   r30, DATA(r0)
         daddi r1, r0, 6
         daddi r2, r0, 7
         dmul  r3, r1, r2
-        sd    r3, params+8(r0)
-        daddi r14, r0, params
-        syscall 5
-        syscall 0
+        daddi r29, r0, 2      ; 2 = signed integer
+        sd    r3, (r30)       ; DATA = 42
+        sd    r29, (r31)      ; CONTROL = 2
+        halt
+`,
+      es: `; CONTROL = 2 imprime DATA como entero con signo seguido de un salto de línea.
+        .data
+CONTROL: .word32 0x10000
+DATA:    .word32 0x10008
+
+        .text
+        lwu   r31, CONTROL(r0)
+        lwu   r30, DATA(r0)
+        daddi r1, r0, 6
+        daddi r2, r0, 7
+        dmul  r3, r1, r2
+        daddi r29, r0, 2      ; 2 = entero con signo
+        sd    r3, (r30)       ; DATA = 42
+        sd    r29, (r31)      ; CONTROL = 2
+        halt
 `,
     },
   },

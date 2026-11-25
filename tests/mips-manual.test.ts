@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { assembleMips, FORMAT_OF } from "../src/mips/assembler";
-import { MIPS_MANUAL, MIPS_SYSCALLS, mipsManualDoc } from "../src/ui/mips-manual";
+import { MIPS_MANUAL, MIPS_IO, mipsManualDoc } from "../src/ui/mips-manual";
 
-describe("MIPS64 instruction manual", () => {
+describe("WinMIPS64 instruction manual", () => {
   const entries = MIPS_MANUAL.flatMap((g) => g.entries);
 
   it("documents every instruction the assembler accepts, once", () => {
@@ -18,8 +18,8 @@ describe("MIPS64 instruction manual", () => {
     }
   });
 
-  it("explains the syscall numbers the simulator handles", () => {
-    expect(MIPS_SYSCALLS.map((s) => s.n)).toEqual([0, 5]);
+  it("explains the CONTROL modes the simulator handles", () => {
+    expect(MIPS_IO.map((s) => s.n)).toEqual([1, 2, 3, 4, 6]);
   });
 
   it("gives every instruction its own section and a link to it, in both languages", () => {

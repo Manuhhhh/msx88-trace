@@ -26,7 +26,7 @@ describe("MIPS64 suggestions", () => {
   });
 
   it("offers only data directives in .data and section directives in .text", () => {
-    expect(labels(".data\n        .w|")).toEqual([".word", ".word16", ".word32", ".word64"]);
+    expect(labels(".data\n        .w|")).toEqual([".word", ".word16", ".word32"]);
     expect(labels(".text\n        .d|")).toEqual([".data"]);
   });
 
@@ -54,19 +54,13 @@ describe("MIPS64 suggestions", () => {
     expect(labels(".text\nsuma: jr r31\n        jal s|")).toEqual(["suma"]);
   });
 
-  it("explains the syscall numbers the simulator handles", () => {
-    const c = at(".text\n        syscall |", true)!;
-    expect(c.items.map((i) => i.label)).toEqual(["0", "5"]);
-    expect(c.items.map((i) => i.detail)).toEqual(["mips.sys.0", "mips.sys.5"]);
-  });
-
   it("offers nothing past the last operand of an instruction", () => {
     expect(labels(".text\n        dadd r1, r2, r3, |", true)).toEqual([]);
     expect(labels(".text\n        nop |", true)).toEqual([]);
   });
 
-  it("completes the entry label after .global", () => {
-    expect(labels(".text\n.global ma|\nmain: nop")).toEqual(["main"]);
+  it("offers nothing after .global: it takes no operand in WinMIPS64", () => {
+    expect(labels(".text\n.global ma|\nmain: nop")).toEqual([]);
   });
 
   it("answers Ctrl+Space on an empty indented line with every instruction", () => {

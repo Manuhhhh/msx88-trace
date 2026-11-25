@@ -1,9 +1,10 @@
 import { AsmError } from "../core/types";
 import { storeBytes } from "./memory";
 
-// ASSUMPTION: EduMIPS64 syntax as documented at edumips64.readthedocs.io, from memory:
-// `.word` is an alias of `.word64`, data memory starts at address 0 and data is
-// naturally aligned, instructions are 4 bytes and live apart from data memory.
+// WinMIPS64 syntax (mcarrickscott/WinMIPS64, doc/ISET.TXT and asm.cpp): `.word` is 64 bits,
+// data memory starts at address 0 and is laid out back to back with no natural alignment
+// (only .align, .org and .space move the pointer), instructions are 4 bytes and live apart
+// from data memory, and execution starts at the first instruction.
 
 export const DATA_SIZE = 0x10000;
 
@@ -17,24 +18,18 @@ export type Format =
   | "br1" // op rs, label
   | "jump" // op label
   | "jr" // op rs
-  | "md" // op rs, rt (result in LO/HI)
-  | "mf" // op rd
-  | "sys" // op [imm]
   | "none";
 
 const FORMATS: Record<Format, string[]> = {
-  rrr: ["dadd", "daddu", "dsub", "dsubu", "and", "or", "xor", "nor", "slt", "sltu", "dsllv", "dsrlv", "dsrav", "dmul", "dmulu"],
-  rri: ["daddi", "daddiu", "andi", "ori", "xori", "slti", "sltiu"],
+  rrr: ["dadd", "daddu", "dsub", "dsubu", "and", "or", "xor", "slt", "sltu", "dsllv", "dsrlv", "dsrav", "dmul", "dmulu", "ddiv", "ddivu"],
+  rri: ["daddi", "daddui", "andi", "ori", "xori", "slti", "sltiu"],
   ri: ["lui"],
   shift: ["dsll", "dsrl", "dsra"],
   mem: ["lb", "lbu", "lh", "lhu", "lw", "lwu", "ld", "sb", "sh", "sw", "sd"],
   br2: ["beq", "bne"],
   br1: ["beqz", "bnez"],
-  jump: ["j", "jal", "b"],
+  jump: ["j", "jal"],
   jr: ["jr", "jalr"],
-  md: ["ddiv", "ddivu"],
-  mf: ["mflo", "mfhi"],
-  sys: ["syscall"],
   none: ["nop", "halt"],
 };
 
@@ -43,8 +38,8 @@ export const FORMAT_OF = new Map<string, Format>(
 );
 
 export const DIRECTIVES = new Set([
-  ".data", ".text", ".code", ".global", ".globl", ".entry",
-  ".byte", ".word", ".word16", ".word32", ".word64", ".space", ".ascii", ".asciiz",
+  ".data", ".text", ".code", ".global", ".org", ".align",
+  ".byte", ".word", ".word16", ".word32", ".space", ".ascii", ".asciiz",
 ]);
 
 const VARIABLE_SHIFTS = new Set(["dsllv", "dsrlv", "dsrav"]);
@@ -196,7 +191,7 @@ function parseString(s: string, line: number): number[] {
   return bytes;
 }
 
-const WORD_SIZE: Record<string, number> = { ".byte": 1, ".word16": 2, ".word32": 4, ".word64": 8, ".word": 8 };
+const WORD_SIZE: Record<string, number> = { ".byte": 1, ".word16": 2, ".word32": 4, ".word": 8 };
 
 interface DataItem {
   line: number;
@@ -214,8 +209,7 @@ export function assembleMips(source: string): MipsProgram {
   const dataLines = new Map<number, number>();
   let section: "text" | "data" = "text";
   let dataEnd = 0;
-  let entryLabel: string | undefined;
-  /** Data labels waiting for the next datum, so they take its natural alignment. */
+  /** Data labels waiting for the next datum, which is where they point. */
   let pending: { name: string; line: number }[] = [];
   const flushPending = (at: number): void => {
     for (const p of pending) define(p.name, { kind: "data", value: at }, p.line);
@@ -240,18 +234,24 @@ export function assembleMips(source: string): MipsProgram {
       section = op === ".data" ? "data" : "text";
       continue;
     }
-    if (op === ".global" || op === ".globl" || op === ".entry") {
-      entryLabel = ln.rest.trim() || undefined;
-      continue;
-    }
+    if (op === ".global") continue;
     if (op.startsWith(".")) {
       if (!DIRECTIVES.has(op)) throw new AsmError(`Unknown directive ${op}`, ln.line);
       if (section !== "data") throw new AsmError(`${op} is only allowed in the .data section`, ln.line);
       const args = splitArgs(ln.rest);
       if (args.length === 0) throw new AsmError(`${op} expects at least one value`, ln.line);
       const size = WORD_SIZE[op];
-      if (size) {
-        dataEnd = alignTo(dataEnd, size);
+      if (op === ".align") {
+        const n = parseNumber(args[0]);
+        if (n === undefined || n < 2n || n > 16n) throw new AsmError(".align expects a number between 2 and 16", ln.line);
+        flushPending(dataEnd);
+        dataEnd = alignTo(dataEnd, Number(n));
+      } else if (op === ".org") {
+        const n = parseNumber(args[0]);
+        if (n === undefined || n < BigInt(dataEnd)) throw new AsmError(`.org expects an address not below ${dataEnd}`, ln.line);
+        flushPending(dataEnd);
+        dataEnd = alignTo(Number(n), 8);
+      } else if (size) {
         flushPending(dataEnd);
         items.push({ line: ln.line, addr: dataEnd, op, args });
         dataEnd += size * args.length;
@@ -305,13 +305,7 @@ export function assembleMips(source: string): MipsProgram {
   for (const { line: ln, index } of rawInstrs) {
     instrs.push(encode(ln, index, symbols, rawInstrs.length));
   }
-  let entry = 0;
-  if (entryLabel !== undefined) {
-    const sym = symbols.get(entryLabel);
-    if (!sym || sym.kind !== "code") throw new AsmError(`Entry point ${entryLabel} is not a code label`, 1);
-    entry = sym.value / 4;
-  }
-  return { instrs, data, symbols, dataLines, units, dataEnd, entry };
+  return { instrs, data, symbols, dataLines, units, dataEnd, entry: 0 };
 }
 
 function alignTo(n: number, size: number): number {
@@ -345,7 +339,7 @@ function encode(ln: RawLine, index: number, symbols: Map<string, MipsSym>, count
   const ins: MipsInstr = { index, addr: index * 4, mnemonic: mn, format, imm: 0n, line, text: ln.text };
 
   const arity: Record<Format, number | [number, number]> = {
-    rrr: 3, rri: 3, ri: 2, shift: 3, mem: 2, br2: 3, br1: 2, jump: 1, jr: 1, md: 2, mf: 1, sys: [0, 1], none: 0,
+    rrr: 3, rri: 3, ri: 2, shift: 3, mem: 2, br2: 3, br1: 2, jump: 1, jr: 1, none: 0,
   };
   const want = arity[format];
   const [lo, hi] = Array.isArray(want) ? want : [want, want];
@@ -423,19 +417,6 @@ function encode(ln: RawLine, index: number, symbols: Map<string, MipsSym>, count
     case "jr":
       ins.rs = reg(args[0]);
       break;
-    case "md":
-      ins.rs = reg(args[0]);
-      ins.rt = reg(args[1]);
-      break;
-    case "mf":
-      ins.rd = reg(args[0]);
-      break;
-    case "sys": {
-      const v = args.length ? parseNumber(args[0]) : 0n;
-      if (v === undefined || v < 0n) throw new AsmError(`${mn}: expected a syscall number`, line);
-      ins.imm = v;
-      break;
-    }
     case "none":
       break;
   }

@@ -357,3 +357,12 @@ a.key { display: inline-flex; align-items: center; text-decoration: none; }
 .terminal-end[data-kind="halted"] { color: var(--color-accent-2); }
 .terminal-end[data-kind="error"] { color: oklch(76% 0.13 27); }
 .terminal-line[hidden], .terminal-end[hidden] { display: none; }
+
+/* ---- trace tables: lateral scroll, draggable column widths ---------------- */
+.ledger-body { overflow-x: auto; overflow-y: auto; overscroll-behavior-x: contain; }
+.log thead th { position: relative; }
+/* the grip: the right edge of a header cell; drag to size the column, double click to clear it */
+.log thead th::after { content: ""; position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; border-right: 1px solid var(--color-rule-2); }
+.log thead th.is-grip::after, .log thead th:hover::after { border-right-color: var(--color-accent); }
+/* a column that was sized keeps its text on one line and cuts it with an ellipsis */
+.log .is-sized { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

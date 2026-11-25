@@ -110,7 +110,7 @@ describe("MipsSimulation", () => {
   const MIPS_LOOP = ".text\nL: daddi r1, r1, 1\nj L\nnop\n";
 
   it("matches simulateMips when advanced in batches", () => {
-    const src = ".text\ndaddi r1, r0, 3\nsyscall 0\n";
+    const src = ".text\ndaddi r1, r0, 3\nhalt\n";
     const whole = simulateMips(src);
     const sim = new MipsSimulation(src);
     while (sim.status === "running") sim.advance(1);

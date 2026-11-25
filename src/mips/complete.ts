@@ -1,5 +1,4 @@
 import type { Completion, Suggestion, SuggestionKind } from "../ui/complete";
-import type { Key } from "../ui/i18n";
 import { ABI_NAMES, FORMAT_OF, regNumber } from "./assembler";
 import type { Format } from "./assembler";
 
@@ -7,7 +6,7 @@ const WORD = /[\w.$]/;
 const NAME = "[A-Za-z_.$][\\w.$]*";
 const LABEL = new RegExp(`^\\s*(${NAME})\\s*:\\s*`);
 
-type Operand = "reg" | "imm" | "mem" | "code" | "sys";
+type Operand = "reg" | "imm" | "mem" | "code";
 
 /** What each operand position of an instruction takes, in order. */
 const OPERANDS: Record<Format, Operand[]> = {
@@ -20,23 +19,13 @@ const OPERANDS: Record<Format, Operand[]> = {
   br1: ["reg", "code"],
   jump: ["code"],
   jr: ["reg"],
-  md: ["reg", "reg"],
-  mf: ["reg"],
-  sys: ["sys"],
   none: [],
 };
 
-/** The syscall numbers the simulator handles, with what each does. */
-const SYSCALLS: [string, Key][] = [
-  ["0", "mips.sys.0"],
-  ["5", "mips.sys.5"],
-];
-
-const DATA_DIRECTIVES = [".word", ".word16", ".word32", ".word64", ".byte", ".space", ".ascii", ".asciiz"];
+const DATA_DIRECTIVES = [".word", ".word16", ".word32", ".byte", ".space", ".align", ".org", ".ascii", ".asciiz"];
 const TEXT_DIRECTIVES = [".data", ".global"];
 /** Directives that take an operand, so a space follows them. */
-const TAKES_OPERAND = new Set([...DATA_DIRECTIVES, ".global", ".globl", ".entry"]);
-const ENTRY_DIRECTIVES = new Set([".global", ".globl", ".entry"]);
+const TAKES_OPERAND = new Set(DATA_DIRECTIVES);
 const KIND_RANK: Record<SuggestionKind, number> = { ins: 0, dir: 1, reg: 2, num: 3, lab: 4, sym: 5 };
 
 /** True when the text before the caret on this line leaves it inside a comment or an open string. */
@@ -129,9 +118,7 @@ export function completeMips(source: string, caret: number, manual: boolean): Co
     }
   } else {
     const first = words[0].toLowerCase();
-    if (ENTRY_DIRECTIVES.has(first)) {
-      if (words.length === 1) addNames("text");
-    } else if (FORMAT_OF.has(first)) {
+    if (FORMAT_OF.has(first)) {
       const kinds = OPERANDS[FORMAT_OF.get(first)!];
       // operands are separated by commas; inside the parentheses of offset(base) only a register fits
       const args = rest.trimStart().slice(first.length);
@@ -141,7 +128,6 @@ export function completeMips(source: string, caret: number, manual: boolean): Co
       else if (kind === "imm") addNames("both");
       else if (kind === "mem") addNames("data");
       else if (kind === "code") addNames("text");
-      else if (kind === "sys") for (const [n, detail] of SYSCALLS) candidates.push({ label: n, kind: "num", detail });
     }
   }
 

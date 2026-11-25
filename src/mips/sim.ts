@@ -33,13 +33,17 @@ export interface MipsStep {
   instr: MipsInstr;
   regs: RegWrite[];
   mem: MemAccess[];
-  lo?: RegWrite;
-  hi?: RegWrite;
   /** For branches and jumps: whether control left the sequential path. */
   taken?: boolean;
-  /** Text this step printed (syscall). */
+  /** Text this step printed through the memory-mapped output. */
   output?: string;
+  /** True when this step cleared the terminal (CONTROL = 6). */
+  clear?: boolean;
 }
+
+/** WinMIPS64's memory-mapped I/O window (pipeline.cpp MMIO): CONTROL at 0x10000, DATA at 0x10008. */
+export const MMIO = 0x10000;
+const MMIO_SIZE = 16;
 
 const MASK = (1n << 64n) - 1n;
 const s64 = (v: bigint): bigint => BigInt.asIntN(64, v);
@@ -56,12 +60,12 @@ const STORES: Record<string, number> = { sb: 1, sh: 2, sw: 4, sd: 8 };
 export class MipsCpu {
   /** Signed 64-bit register values; r0 is always 0. */
   regs: bigint[] = Array<bigint>(32).fill(0n);
-  lo = 0n;
-  hi = 0n;
   /** Index of the next instruction. */
   pc: number;
   halted = false;
   output = "";
+  /** The CONTROL/DATA registers behind the memory-mapped window. */
+  readonly mm = new Uint8Array(MMIO_SIZE);
   readonly mem: Uint8Array;
   readonly program: MipsProgram;
 
@@ -80,7 +84,7 @@ export class MipsCpu {
       this.fail(ins, `Address ${addr} is outside data memory`);
     }
     const a = Number(addr);
-    // ASSUMPTION: EduMIPS64 raises a "misaligned memory access" error for unaligned loads/stores.
+    // ASSUMPTION: WinMIPS64 reports "misaligned memory load/store" and skips the access but keeps running; here the run stops.
     if (a % size !== 0) this.fail(ins, `Misaligned memory access at address ${a} (${size} bytes)`);
     return a;
   }
@@ -94,26 +98,39 @@ export class MipsCpu {
     }
   }
 
-  /** ASSUMPTION: syscall 5 follows EduMIPS64's printf: r14 points to a block of 64-bit params [format, args...]; r1 gets the length printed. */
-  private printf(ins: MipsInstr, step: MipsStep): void {
-    const block = this.regs[14];
-    const param = (i: number): bigint => {
-      const at = this.access(ins, block + BigInt(8 * i), 8);
-      step.mem.push({ kind: "read", addr: at, size: 8, after: BigInt.asIntN(64, loadBytes(this.mem, at, 8)) });
-      return BigInt.asIntN(64, loadBytes(this.mem, at, 8));
-    };
-    const fmt = this.cstring(ins, param(0));
-    let next = 1;
-    const out = fmt.replace(/%([disc%])/g, (_, c: string) => {
-      if (c === "%") return "%";
-      const v = param(next++);
-      if (c === "s") return this.cstring(ins, v);
-      if (c === "c") return String.fromCharCode(Number(v & 0xffn));
-      return String(v);
-    });
-    step.output = out;
-    this.output += out;
-    this.write(step, 1, BigInt(out.length));
+  /**
+   * WinMIPS64 polls CONTROL after every cycle (update_io): a nonzero CONTROL byte is acted on and cleared.
+   * 1/2 print DATA as an unsigned/signed integer plus a newline, 3 as a double, 4 the string at address DATA,
+   * 6 clears the terminal. ASSUMPTION: graphics (5, 7) and keyboard input (8, 9) are unsupported and stop the run.
+   */
+  private updateIo(ins: MipsInstr, step: MipsStep): void {
+    if (this.mm[0] === 0) return;
+    const control = Number(loadBytes(this.mm, 0, 4));
+    const data = loadBytes(this.mm, 8, 8);
+    let out = "";
+    switch (control) {
+      case 1: out = `${data}\n`; break;
+      case 2: out = `${BigInt.asIntN(64, data)}\n`; break;
+      case 3: {
+        const view = new DataView(new ArrayBuffer(8));
+        view.setBigUint64(0, data);
+        out = `${view.getFloat64(0).toFixed(6)}\n`;
+        break;
+      }
+      case 4: out = this.cstring(ins, data); break;
+      case 6:
+        this.output = "";
+        step.clear = true;
+        break;
+      case 5: case 7: this.fail(ins, `CONTROL ${control} (graphics) is not supported`); break;
+      case 8: case 9: this.fail(ins, `CONTROL ${control} (keyboard input) is not supported`); break;
+      default: break;
+    }
+    this.mm[0] = 0;
+    if (out !== "") {
+      step.output = (step.output ?? "") + out;
+      this.output += out;
+    }
   }
 
   private write(step: MipsStep, reg: number, value: bigint): void {
@@ -155,7 +172,6 @@ export class MipsCpu {
       case "and": rd(rs & rt); break;
       case "or": rd(rs | rt); break;
       case "xor": rd(rs ^ rt); break;
-      case "nor": rd(~(rs | rt)); break;
       case "slt": rd(rs < rt ? 1n : 0n); break;
       case "sltu": rd(u64(rs) < u64(rt) ? 1n : 0n); break;
       case "dsllv": rd(rt << (u64(rs) & 63n)); break;
@@ -163,7 +179,7 @@ export class MipsCpu {
       case "dsrav": rd(rt >> (u64(rs) & 63n)); break;
       case "dmul": case "dmulu": rd(rs * rt); break;
       case "daddi": rtw(checked(rs + simm)); break;
-      case "daddiu": rtw(rs + simm); break;
+      case "daddui": rtw(rs + simm); break;
       case "andi": rtw(rs & zimm); break;
       case "ori": rtw(rs | zimm); break;
       case "xori": rtw(rs ^ zimm); break;
@@ -178,19 +194,14 @@ export class MipsCpu {
         const a = signed ? rs : u64(rs);
         const b = signed ? rt : u64(rt);
         if (b === 0n) this.fail(ins, "Division by zero");
-        step.lo = { reg: -1, before: this.lo, after: s64(a / b) };
-        step.hi = { reg: -1, before: this.hi, after: s64(a % b) };
-        this.lo = step.lo.after;
-        this.hi = step.hi.after;
+        rd(a / b);
         break;
       }
-      case "mflo": rd(this.lo); break;
-      case "mfhi": rd(this.hi); break;
       case "beq": branch(rs === rt); break;
       case "bne": branch(rs !== rt); break;
       case "beqz": branch(rs === 0n); break;
       case "bnez": branch(rs !== 0n); break;
-      case "j": case "b": branch(true); break;
+      case "j": branch(true); break;
       case "jal":
         this.write(step, 31, BigInt(ins.addr + 4));
         branch(true);
@@ -206,25 +217,25 @@ export class MipsCpu {
       }
       case "nop": break;
       case "halt": this.halted = true; break;
-      case "syscall":
-        if (ins.imm === 0n) this.halted = true;
-        else if (ins.imm === 5n) this.printf(ins, step);
-        else this.fail(ins, `Unsupported syscall ${ins.imm}`);
-        break;
       default: {
         const ld = LOADS[ins.mnemonic];
         const st = STORES[ins.mnemonic];
         const size = ld?.size ?? st;
-        const at = this.access(ins, rs + simm, size);
+        const addr = rs + simm;
+        const io = addr >= BigInt(MMIO) && addr + BigInt(size) <= BigInt(MMIO + MMIO_SIZE);
+        const at = io ? Number(addr) - MMIO : this.access(ins, addr, size);
+        if (io && at % size !== 0) this.fail(ins, `Misaligned memory access at address ${Number(addr)} (${size} bytes)`);
+        const mem = io ? this.mm : this.mem;
         if (ld) {
-          const raw = loadBytes(this.mem, at, size);
+          const raw = loadBytes(mem, at, size);
           const v = ld.signed ? BigInt.asIntN(size * 8, raw) : raw;
-          step.mem.push({ kind: "read", addr: at, size, after: v });
+          if (!io) step.mem.push({ kind: "read", addr: at, size, after: v });
           rtw(v);
         } else {
-          const before = loadBytes(this.mem, at, size);
-          storeBytes(this.mem, at, size, rt);
-          step.mem.push({ kind: "write", addr: at, size, before, after: loadBytes(this.mem, at, size) });
+          const before = loadBytes(mem, at, size);
+          storeBytes(mem, at, size, rt);
+          if (!io) step.mem.push({ kind: "write", addr: at, size, before, after: loadBytes(mem, at, size) });
+          else this.updateIo(ins, step);
         }
       }
     }

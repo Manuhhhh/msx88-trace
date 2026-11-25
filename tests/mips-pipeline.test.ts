@@ -57,14 +57,14 @@ describe("pipeline cycle diagram", () => {
     expect(p.stats.raw).toBe(0);
   });
 
-  it("makes mflo wait for ddiv through LO, like a register dependency", () => {
-    const src = "daddi r1, r0, 4\ndaddi r2, r0, 2\nddiv r1, r2\nmflo r3";
+  it("makes an instruction wait for the ddiv result register", () => {
+    const src = "daddi r1, r0, 4\ndaddi r2, r0, 2\nddiv r3, r1, r2\ndadd r4, r3, r3";
     expect(pipe(src, false).rows[3].raw).toBe(2);
     expect(pipe(src, true).rows[3].raw).toBe(0);
   });
 
   it("loses a cycle on a taken branch and none on a fallen-through one", () => {
-    const taken = pipe("b end\nnop\nend: nop", true);
+    const taken = pipe("j end\nnop\nend: nop", true);
     expect(taken.rows.map((r) => r.cells[0].cycle)).toEqual([1, 3]);
     expect(taken.rows[0].flush).toBe(true);
     expect(taken.stats.flushes).toBe(1);

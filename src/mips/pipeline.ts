@@ -1,11 +1,11 @@
 import type { MipsInstr } from "./assembler";
 import type { MipsStep } from "./sim";
 
-// ASSUMPTION: a classic in-order 5-stage pipeline as EduMIPS64 draws it. Every integer
+// ASSUMPTION: a classic in-order 5-stage pipeline as WinMIPS64 draws it. Every integer
 // instruction takes one cycle in EX (mul/div are not multi-cycle), there are no structural
 // hazards, and WAW/WAR cannot happen in order. The register file is written in WB and can be
 // read by an ID that runs in that same cycle. Branches and jumps resolve in ID, and a taken one
-// discards the instruction being fetched. Exact EduMIPS64 timing is still to be checked against its manual.
+// discards the instruction being fetched. WinMIPS64 also gives mul/div multi-cycle latencies and optional delay slot / branch target buffer; those are not modelled.
 
 export type Stage = "IF" | "ID" | "RAW" | "EX" | "MEM" | "WB";
 
@@ -47,10 +47,6 @@ export interface PipelineOptions {
   forwarding: boolean;
 }
 
-/** Pseudo registers for LO and HI so mflo/mfhi depend on ddiv like on a register write. */
-const LO = 32;
-const HI = 33;
-
 const LOADS = new Set(["lb", "lbu", "lh", "lhu", "lw", "lwu", "ld"]);
 const RESOLVE_IN_ID = new Set(["beq", "bne", "beqz", "bnez", "jr", "jalr"]);
 
@@ -58,12 +54,10 @@ const RESOLVE_IN_ID = new Set(["beq", "bne", "beqz", "bnez", "jr", "jalr"]);
 export function readsOf(i: MipsInstr): number[] {
   const out: (number | undefined)[] = [];
   switch (i.format) {
-    case "rrr": case "br2": case "md": out.push(i.rs, i.rt); break;
+    case "rrr": case "br2": out.push(i.rs, i.rt); break;
     case "rri": case "br1": case "jr": out.push(i.rs); break;
     case "shift": out.push(i.rt); break;
     case "mem": out.push(i.rs, LOADS.has(i.mnemonic) ? undefined : i.rt); break;
-    case "mf": out.push(i.mnemonic === "mflo" ? LO : HI); break;
-    case "sys": if (i.imm === 5n) out.push(14); break;
     default: break;
   }
   return out.filter((r): r is number => r !== undefined && r !== 0);
@@ -73,13 +67,11 @@ export function readsOf(i: MipsInstr): number[] {
 export function writesOf(i: MipsInstr): number[] {
   const out: (number | undefined)[] = [];
   switch (i.format) {
-    case "rrr": case "shift": case "mf": out.push(i.rd); break;
+    case "rrr": case "shift": out.push(i.rd); break;
     case "rri": case "ri": out.push(i.rt); break;
     case "mem": if (LOADS.has(i.mnemonic)) out.push(i.rt); break;
-    case "md": out.push(LO, HI); break;
     case "jump": if (i.mnemonic === "jal") out.push(31); break;
     case "jr": if (i.mnemonic === "jalr") out.push(31); break;
-    case "sys": if (i.imm === 5n) out.push(1); break;
     default: break;
   }
   return out.filter((r): r is number => r !== undefined && r !== 0);
