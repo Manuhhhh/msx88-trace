@@ -20,7 +20,7 @@ export interface RegTable {
 }
 
 const regName = (n: number): RegKey => `r${n}`;
-const colOrder = (k: RegKey): number => (k === "lo" ? 100 : k === "hi" ? 101 : Number(k.slice(1)));
+const colOrder = (k: RegKey): number => Number(k.slice(1));
 
 /** One row per step that changed a register, one column per register that ever changed. */
 export function registerTable(steps: MipsStep[]): RegTable {
@@ -29,8 +29,6 @@ export function registerTable(steps: MipsStep[]): RegTable {
   for (const s of steps) {
     const set = new Map<RegKey, bigint>();
     for (const w of s.regs) set.set(regName(w.reg), w.after);
-    if (s.lo) set.set("lo", s.lo.after);
-    if (s.hi) set.set("hi", s.hi.after);
     if (set.size === 0) continue;
     for (const k of set.keys()) cols.add(k);
     rows.push({ step: s.n, line: s.instr.line, text: s.instr.text, set });
@@ -218,8 +216,6 @@ export interface StepFacts {
 /** What one instruction did, as plain data the screen words in the chosen language. */
 export function stepFacts(step: MipsStep, row: PipelineRow): StepFacts {
   const regs = step.regs.map((w) => `${regName(w.reg)} = ${w.after}`);
-  if (step.lo) regs.push(`LO = ${step.lo.after}`);
-  if (step.hi) regs.push(`HI = ${step.hi.after}`);
   return {
     regs,
     mem: step.mem.map((m) => ({ kind: m.kind, addr: m.addr, size: m.size, value: m.after })),

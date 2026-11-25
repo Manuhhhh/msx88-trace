@@ -70,9 +70,8 @@ describe("MIPS64 linter: code that never runs", () => {
     expect(marked(src, d)).toBe("sobra");
   });
 
-  it("flags code after halt and after syscall 0", () => {
+  it("flags code after halt", () => {
     expect(lintMips("halt\nnop", {}, dead).map((d) => d.line)).toEqual([2]);
-    expect(lintMips("syscall 0\nnop", {}, dead).map((d) => d.line)).toEqual([2]);
   });
 
   it("counts both sides of a conditional branch, a call and its return as reachable", () => {
@@ -85,9 +84,9 @@ describe("MIPS64 linter: code that never runs", () => {
     expect(lintMips("jalr r5\nhalt\nnop", {}, dead)).toEqual([]);
   });
 
-  it("starts from the entry point set with .global", () => {
+  it("starts at the first instruction: .global does not move the entry point", () => {
     const out = lintMips(".text\n.global main\nantes: nop\nmain: halt", {}, dead);
-    expect(out.map((d) => d.line)).toEqual([3]);
+    expect(out).toEqual([]);
   });
 });
 
@@ -126,12 +125,8 @@ describe("MIPS64 linter: registers read before they are assigned", () => {
     expect(lintMips("daddi r1, r0, 1\ndadd r2, r1, r1\nhalt", {}, uninit)).toEqual([]);
   });
 
-  it("counts a store's data register and the printf parameter register as reads", () => {
+  it("counts a store's data register as a read", () => {
     expect(lintMips(".data\nv: .space 8\n.text\nsd r3, v(r0)\nhalt", {}, uninit)[0]?.vars).toEqual({ name: "r3" });
-    const src = "syscall 5\nhalt";
-    const [d] = lintMips(src, {}, uninit);
-    expect(d.vars).toEqual({ name: "r14" });
-    expect(marked(src, d)).toBe("syscall 5"); // no r14 on the line: the whole statement is marked
   });
 
   it("names the register as it was written, $t0 included", () => {

@@ -1,6 +1,5 @@
-// ASSUMPTION: EduMIPS64 data memory is big-endian (its memory view is a bit vector read
-// most-significant-first). It is a single constant so it can be flipped if the manual says otherwise.
-export const BIG_ENDIAN = true;
+// WinMIPS64 data memory is little-endian (utils.cpp pack/unpack: byte 0 is the least significant).
+export const BIG_ENDIAN = false;
 
 /** Writes the low `size` bytes of `value` at `at`. */
 export function storeBytes(mem: Uint8Array, at: number, size: number, value: bigint): void {

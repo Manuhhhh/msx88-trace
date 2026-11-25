@@ -125,3 +125,11 @@ RUT:    PUSH AX
     expect(done.reason).toBe("halted");
   });
 });
+
+describe("terminalView with a cleared terminal", () => {
+  it("drops what was printed before a step that cleared it", () => {
+    const steps = [{ output: "a" }, { output: "b" }, { clear: true }, { output: "c" }];
+    expect(terminalView(steps, 2, []).text).toBe("ab");
+    expect(terminalView(steps, 4, []).text).toBe("c");
+  });
+});

@@ -122,7 +122,7 @@ function flowOf(program: MipsProgram): Flow {
     } else if (mn === "jalr") {
       out = next;
       indirect = true;
-    } else if (mn === "halt" || (mn === "syscall" && ins.imm === 0n)) out = [];
+    } else if (mn === "halt") out = [];
     else out = next;
     succ.set(ins.index, out);
   }
@@ -210,7 +210,7 @@ function uninitWarnings(steps: MipsStep[], source: string): Diagnostic[] {
       if (r >= 32 || written.has(r) || seen.has(`${instr.line}:${r}`)) continue;
       seen.add(`${instr.line}:${r}`);
       const text = lines[instr.line - 1] ?? "";
-      // the register as the user wrote it ($t0, r5); syscall 5 reads r14 without naming it
+      // the register as the user wrote it ($t0, r5)
       const token = [...text.slice(0, statement(text)[1]).matchAll(/[$\w]+/g)].find((m) => regNumber(m[0]) === r);
       const name = token ? token[0] : `r${r}`;
       out.push({

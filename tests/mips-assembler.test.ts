@@ -13,7 +13,7 @@ describe("MIPS64 assembler", () => {
     expect(regNumber("foo")).toBeUndefined();
   });
 
-  it("lays out .data with natural alignment and resolves data labels", () => {
+  it("lays out .data back to back, with no natural alignment, little-endian", () => {
     const p = asm(`
       .data
       a: .byte 1
@@ -22,15 +22,37 @@ describe("MIPS64 assembler", () => {
       .text
       halt`);
     expect(p.symbols.get("a")).toEqual({ kind: "data", value: 0 });
-    expect(p.symbols.get("b")).toEqual({ kind: "data", value: 8 });
-    expect(p.symbols.get("c")).toEqual({ kind: "data", value: 16 });
-    expect(Array.from(p.data.slice(8, 16))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect(Array.from(p.data.slice(16, 24))).toEqual([0, 0, 0, 7, 0, 0, 0, 8]);
+    expect(p.symbols.get("b")).toEqual({ kind: "data", value: 1 });
+    expect(p.symbols.get("c")).toEqual({ kind: "data", value: 9 });
+    expect(Array.from(p.data.slice(1, 9))).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
+    expect(Array.from(p.data.slice(9, 17))).toEqual([7, 0, 0, 0, 8, 0, 0, 0]);
   });
 
-  it("aligns a label that sits alone on its line with the datum that follows", () => {
+  it("puts a label that sits alone on its line at the next free address", () => {
     const p = asm(".data\nx: .byte 1\nw:\n.word 5\n.text\nhalt");
-    expect(p.symbols.get("w")?.value).toBe(8);
+    expect(p.symbols.get("w")?.value).toBe(1);
+  });
+
+  it("moves the data pointer with .align and .org", () => {
+    const p = asm(".data\na: .byte 1\n.align 8\nb: .byte 2\n.org 32\nc: .byte 3\n.text\nhalt");
+    expect(p.symbols.get("b")?.value).toBe(8);
+    expect(p.symbols.get("c")?.value).toBe(32);
+    expect([p.data[8], p.data[32]]).toEqual([2, 3]);
+  });
+
+  it("rejects the EduMIPS64-only spellings", () => {
+    expect(() => asm(".data\nx: .word64 1\n.text\nhalt")).toThrow("Unknown directive .word64");
+    expect(() => asm(".data\nx: .dword 1\n.text\nhalt")).toThrow("Unknown directive .dword");
+    expect(() => asm("syscall 0")).toThrow("Unknown instruction syscall");
+    expect(() => asm("daddiu r1, r0, 1")).toThrow("Unknown instruction daddiu");
+    expect(() => asm("mflo r1")).toThrow("Unknown instruction mflo");
+  });
+
+  it("takes ddiv and dmul with three registers and accepts daddui", () => {
+    const [d, m, u] = asm("ddiv r1, r2, r3\ndmul r4, r5, r6\ndaddui r1, r0, 7\nhalt").instrs;
+    expect([d.rd, d.rs, d.rt]).toEqual([1, 2, 3]);
+    expect([m.rd, m.rs, m.rt]).toEqual([4, 5, 6]);
+    expect([u.rt, u.imm]).toEqual([1, 7n]);
   });
 
   it("encodes strings with escapes and .space", () => {
@@ -53,7 +75,7 @@ describe("MIPS64 assembler", () => {
             bnez r1, end
             jal main
             jr r31
-      end:  syscall 0`);
+      end:  halt`);
     const [i0, i1, i2, i3, i4, i5, i6, i7, i8, i9] = p.instrs;
     expect([i0.rt, i0.rs, i0.imm]).toEqual([1, 0, 5n]);
     expect([i1.rd, i1.rs, i1.rt]).toEqual([3, 1, 1]);
@@ -64,7 +86,7 @@ describe("MIPS64 assembler", () => {
     expect([i6.rs, i6.target]).toEqual([1, 9]);
     expect(i7.target).toBe(0);
     expect(i8.rs).toBe(31);
-    expect(i9.imm).toBe(0n);
+    expect(i9.mnemonic).toBe("halt");
     expect(p.instrs.map((i) => i.addr)).toEqual([0, 4, 8, 12, 16, 20, 24, 28, 32, 36]);
   });
 
@@ -84,9 +106,9 @@ describe("MIPS64 assembler", () => {
     expect(p.instrs).toHaveLength(1);
   });
 
-  it("honours .global as the entry point", () => {
+  it("accepts .global and always starts at the first instruction", () => {
     const p = asm(".text\n.global main\nnop\nmain: halt");
-    expect(p.entry).toBe(1);
+    expect(p.entry).toBe(0);
   });
 
   it.each([
@@ -114,12 +136,12 @@ describe("MIPS64 assembler", () => {
 
 describe("data units", () => {
   it("records every datum that spans several bytes, and leaves single bytes out", () => {
-    const p = asm(".data\nb: .byte 1\nw: .word 5\nh: .word16 1, 2\nbuf: .space 16\ns: .asciiz \"hi\"\n.code\nsyscall 0\n");
+    const p = asm(".data\nb: .byte 1\nw: .word 5\nh: .word16 1, 2\nbuf: .space 16\ns: .asciiz \"hi\"\n.code\nhalt\n");
     expect(p.units).toEqual([
-      { addr: 8, size: 8 },
-      { addr: 16, size: 2 },
-      { addr: 18, size: 2 },
-      { addr: 20, size: 16 },
+      { addr: 1, size: 8 },
+      { addr: 9, size: 2 },
+      { addr: 11, size: 2 },
+      { addr: 13, size: 16 },
     ]);
   });
 });
@@ -127,7 +149,7 @@ describe("data units", () => {
 describe("declaration lines", () => {
   it("finds the source line of the directive that fills an address", async () => {
     const { declLine } = await import("../src/mips/view");
-    const p = asm(".data\nmsg: .asciiz \"hi\"\nx: .word 5\n.code\nsyscall 0\n");
-    expect([declLine(p, 0), declLine(p, 2), declLine(p, 8), declLine(p, 16)]).toEqual([2, 2, 3, undefined]);
+    const p = asm(".data\nmsg: .asciiz \"hi\"\nx: .word 5\n.code\nhalt\n");
+    expect([declLine(p, 0), declLine(p, 2), declLine(p, 3), declLine(p, 16)]).toEqual([2, 2, 3, undefined]);
   });
 });
