@@ -1,3 +1,4 @@
+import { enableColumnResize } from "./colresize";
 import { AsmError } from "../core/types";
 import { mipsExamplesFor } from "../mips/examples";
 import { completeMips } from "../mips/complete";
@@ -150,6 +151,7 @@ export function mountMipsApp(root: HTMLElement): void {
   const regionEl = q<HTMLDivElement>("region");
   const termEl = q<HTMLDivElement>("term");
   const ledgersEl = q<HTMLDivElement>("ledgers");
+  enableColumnResize(ledgersEl);
   const gutterEl = q<HTMLPreElement>("gutter");
   const hlCodeEl = q<HTMLElement>("hl-code");
   const summaryEl = q<HTMLParagraphElement>("summary");

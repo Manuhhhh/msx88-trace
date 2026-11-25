@@ -1,3 +1,4 @@
+import { enableColumnResize } from "./colresize";
 import { Simulation, simulate } from "../core/simulate";
 import type { IrqEvent, SimResult } from "../core/simulate";
 import { AsmError } from "../core/types";
@@ -180,6 +181,7 @@ export function mountApp(root: HTMLElement): void {
   const regionEl = q<HTMLDivElement>("region");
   const termEl = q<HTMLDivElement>("term");
   const ledgersEl = q<HTMLDivElement>("ledgers");
+  enableColumnResize(ledgersEl);
   const hoverEl = q<HTMLParagraphElement>("hover");
   const gutterEl = q<HTMLPreElement>("gutter");
   const layoutBtn = q<HTMLButtonElement>("layout");
