@@ -2,6 +2,7 @@ import { assemble } from "./assembler";
 import { Cpu, CpuError, InputWait } from "./cpu";
 import type { RunResult, TraceStep } from "./cpu";
 import { Pic } from "./pic";
+import { Pio } from "./pio";
 import { Timer, TIMER_LINE } from "./timer";
 import type { Program } from "./types";
 
@@ -44,18 +45,20 @@ export class Simulation {
   error?: string;
   private readonly pic: Pic;
   private readonly timer: Timer;
+  private readonly pio = new Pio();
   private readonly events: IrqEvent[];
   private readonly maxSteps: number;
 
   /** Assembles `source`; AsmError propagates. */
   constructor(source: string, opts: SimOptions = {}) {
     this.program = assemble(source);
-    this.timer = new Timer(() => this.pic.raise(TIMER_LINE), opts.stepsPerSecond);
+    this.timer = new Timer(() => this.pic.raise(TIMER_LINE), opts.stepsPerSecond, this.pio);
     this.pic = new Pic(this.timer);
     this.cpu = new Cpu(this.program, {
       bus: this.pic,
       interruptPoll: () => this.pic.poll(),
       deviceState: () => this.pic.state(),
+      portState: () => this.pio.state(),
       input: opts.input,
       waitForInput: opts.waitForInput,
       random: opts.random,

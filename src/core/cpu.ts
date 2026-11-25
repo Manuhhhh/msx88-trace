@@ -71,6 +71,8 @@ export interface TraceStep {
   input?: string;
   /** Device registers after the step (see CpuOptions.deviceState). */
   devices?: Record<string, number>;
+  /** Parallel port registers (PA, PB, CA, CB) after the step (see CpuOptions.portState). */
+  ports?: Record<string, number>;
   note?: string;
 }
 
@@ -105,6 +107,8 @@ export interface CpuOptions {
   sp?: number;
   /** Device registers to include in every trace step (e.g. PIC IRR/ISR/IMR). */
   deviceState?: () => Record<string, number>;
+  /** Parallel port registers to include in every trace step. */
+  portState?: () => Record<string, number>;
 }
 
 // ASSUMPTION: SP starts at 8000h (documented MSX88 convention, not verified here).
@@ -148,6 +152,7 @@ export class Cpu {
   private bus: Bus;
   private interruptPoll?: CpuOptions["interruptPoll"];
   private deviceState?: CpuOptions["deviceState"];
+  private portState?: CpuOptions["portState"];
   private input: string[];
   private waitForInput: boolean;
   private random: (max: number) => number;
@@ -166,6 +171,7 @@ export class Cpu {
     this.bus = opts.bus ?? new PlainBus();
     this.interruptPoll = opts.interruptPoll;
     this.deviceState = opts.deviceState;
+    this.portState = opts.portState;
     this.input = [...(opts.input ?? "")];
     this.waitForInput = opts.waitForInput ?? false;
     this.random = opts.random ?? ((max) => Math.floor(Math.random() * (max + 1)));
@@ -606,6 +612,7 @@ export class Cpu {
       output: this.cur.output,
       input: this.cur.input,
       devices: this.deviceState?.(),
+      ports: this.portState?.(),
       note: this.cur.note,
     };
   }

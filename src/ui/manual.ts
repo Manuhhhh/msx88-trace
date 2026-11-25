@@ -520,6 +520,10 @@ const PORTS: { port: string; effect: L }[] = [
   { port: "21H IMR", effect: l("Interrupt mask: a 1 bit blocks that line. It starts at FFH, everything blocked.", "Máscara de interrupciones: un bit en 1 bloquea esa línea. Arranca en FFH, todo bloqueado.") },
   { port: "22H IRR", effect: l("Requests waiting (read only).", "Pedidos pendientes (solo lectura).") },
   { port: "23H ISR", effect: l("Line being served (read only).", "Línea que se está atendiendo (solo lectura).") },
+  { port: "30H PA", effect: l("Parallel port A data. Only the lines set as outputs in CA can be written; input lines read 0.", "Datos del puerto paralelo A. Solo se pueden escribir las líneas configuradas como salida en CA; las de entrada leen 0.") },
+  { port: "31H PB", effect: l("Parallel port B data. Only the lines set as outputs in CB can be written; input lines read 0.", "Datos del puerto paralelo B. Solo se pueden escribir las líneas configuradas como salida en CB; las de entrada leen 0.") },
+  { port: "32H CA", effect: l("Direction of each line of port A: 1 is input, 0 is output. It starts at FFH.", "Dirección de cada línea del puerto A: 1 es entrada, 0 es salida. Arranca en FFH.") },
+  { port: "33H CB", effect: l("Direction of each line of port B: 1 is input, 0 is output. It starts at FFH.", "Dirección de cada línea del puerto B: 1 es entrada, 0 es salida. Arranca en FFH.") },
   { port: "24H to 2BH", effect: l("INT0 to INT7: the vector number each line raises.", "INT0 a INT7: el número de vector que dispara cada línea.") },
 ];
 
@@ -536,8 +540,8 @@ const TEXT = {
     operands: "Operands",
     directives: "Directives and syntax",
     instructions: "Instructions",
-    ports: "Timer and interrupt controller ports",
-    portsIntro: "Use IN and OUT with these ports to program the timer and the interrupt controller. F10 is line 0, the timer is line 1 and the handshake is line 2. The simulator has no real clock: one second of the timer is 100 executed steps.",
+    ports: "Timer, interrupt controller and parallel ports",
+    portsIntro: "Use IN and OUT with these ports to program the timer, the interrupt controller and the parallel ports A and B. F10 is line 0, the timer is line 1 and the handshake is line 2. The simulator has no real clock: one second of the timer is 100 executed steps.",
     port: "Port",
   },
   es: {
@@ -552,8 +556,8 @@ const TEXT = {
     operands: "Operandos",
     directives: "Directivas y sintaxis",
     instructions: "Instrucciones",
-    ports: "Puertos del timer y del controlador de interrupciones",
-    portsIntro: "Con IN y OUT sobre estos puertos se programan el timer y el controlador de interrupciones. F10 es la línea 0, el timer la línea 1 y el handshake la línea 2. El simulador no tiene reloj real: un segundo del timer son 100 pasos ejecutados.",
+    ports: "Puertos del timer, del controlador de interrupciones y del paralelo",
+    portsIntro: "Con IN y OUT sobre estos puertos se programan el timer, el controlador de interrupciones y los puertos paralelos A y B. F10 es la línea 0, el timer la línea 1 y el handshake la línea 2. El simulador no tiene reloj real: un segundo del timer son 100 pasos ejecutados.",
     port: "Puerto",
   },
 } as const;
